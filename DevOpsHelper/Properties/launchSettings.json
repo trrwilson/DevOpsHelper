@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "DevOpsHelper": {
+      "commandName": "Project",
+      "commandLineArgs": "UpdateTestFailureBugs"
+    }
+  }
+}

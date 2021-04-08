@@ -12,6 +12,12 @@ namespace DevOpsMinClient.Helpers
 
         public int PatchCount => this.patches.Count;
 
+        public static JsonPatchBuilder operator+ (JsonPatchBuilder first, JsonPatchBuilder second)
+        {
+            first.patches.AddRange(second.patches);
+            return first;
+        }
+
         public JsonPatchBuilder()
         {
 

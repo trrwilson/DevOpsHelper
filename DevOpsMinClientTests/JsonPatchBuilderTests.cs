@@ -90,6 +90,17 @@ namespace DevOpsMinClientTests
             Assert.AreEqual(expected, ToActual(builder));
         }
 
+        [Test]
+        public void CombinePatches()
+        {
+            var original = new JsonPatchBuilder()
+                .Add(this.addPath, 4);
+            var toBeAdded = new JsonPatchBuilder()
+                .Remove(this.removePath);
+            original += toBeAdded;
+            Assert.AreEqual(2, original.PatchCount);
+        }
+
         private static string ToActual(JsonPatchBuilder builder)
         {
             var withSpaces = builder.ToString();

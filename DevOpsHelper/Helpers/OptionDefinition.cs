@@ -144,6 +144,12 @@ namespace DevOpsHelper
             public static OptionDefinition BugAreaPath = new OptionDefinition(
                 "--bug-area-path",
                 "The area path that test failure bugs should fall under.");
+            public static OptionDefinition BugIterationPath = new(
+                "--bug-iteration-path",
+                "The iteration path that test failure bugs should fall under.");
+            public static OptionDefinition BugTag = new(
+                "--bug-tag",
+                "A tag to ensure is applied to all test failure bugs.");
             public static OptionDefinition<int> AutoFileThreshold = new(
                 "--auto-file-threshold",
                 "If non-negative, the number of recent failures after which a test will auto-file a new bug.");

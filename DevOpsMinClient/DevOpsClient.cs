@@ -1,6 +1,7 @@
 ﻿using DevOpsMinClient.DataTypes;
 using DevOpsMinClient.DataTypes.QueryFilters;
 using DevOpsMinClient.Helpers;
+using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
@@ -18,6 +19,7 @@ namespace DevOpsMinClient
         private string personalAccessToken;
         private HttpClient baseClient = new HttpClient();
         private string baseUrl;
+        public event Action<string, string> ErrorReceived;
 
         public string PersonalAccessToken
         {
@@ -253,6 +255,7 @@ namespace DevOpsMinClient
         protected virtual async Task<string> GetAsync(string url)
         {
             var httpResult = await this.baseClient.GetAsync(url);
+            await this.CheckResponseAsync(httpResult, "get");
             var textResult = await httpResult.Content.ReadAsStringAsync();
             return textResult;
         }
@@ -265,6 +268,7 @@ namespace DevOpsMinClient
             var response = await this.baseClient.PostAsync(
                 url,
                 payload != null ? new StringContent(payload, Encoding.UTF8, contentType) : null);
+            await this.CheckResponseAsync(response, "post");
             var responseText = await response.Content.ReadAsStringAsync();
             return responseText;
         }
@@ -280,6 +284,7 @@ namespace DevOpsMinClient
             var response = await this.baseClient.PatchAsync(
                 url,
                 new StringContent(payload, Encoding.UTF8, "application/json-patch+json"));
+            await this.CheckResponseAsync(response, "patch");
             var responseText = await response.Content.ReadAsStringAsync();
             return responseText;
         }
@@ -663,5 +668,14 @@ namespace DevOpsMinClient
 
         public string GetAnalyticsUrl()
             => this.baseUrl.Insert(this.baseUrl.IndexOf('.') + 1, "analytics.");
+
+        private async Task CheckResponseAsync(HttpResponseMessage response, string label)
+        {
+            if (response.StatusCode != System.Net.HttpStatusCode.OK)
+            {
+                this.ErrorReceived?.Invoke(label, await response.Content.ReadAsStringAsync());
+            }
+        }
+
     }
 }

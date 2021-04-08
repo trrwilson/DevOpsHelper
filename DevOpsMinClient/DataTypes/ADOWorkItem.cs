@@ -13,6 +13,7 @@ namespace DevOpsMinClient.DataTypes
         public string Title { get; set; }
         public int Revision { get; set; }
         public string State { get; set; }
+        public ADOPerson ResolvedBy { get; set; }
         public DateTime ResolvedDate { get; set; }
         public DateTime DeploymentDate { get; set; }
         public DateTime LastHitDate { get; set; }
@@ -23,6 +24,7 @@ namespace DevOpsMinClient.DataTypes
         public static class FieldNames
         {
             public static string AreaPath => "System.AreaPath";
+            public static string IterationPath => "System.IterationPath";
             public static string StoryPoints => "Microsoft.VSTS.Scheduling.StoryPoints";
             public static string Title => "System.Title";
             public static string State => "System.State";
@@ -33,6 +35,8 @@ namespace DevOpsMinClient.DataTypes
             public static string AssignedTo => "System.AssignedTo";
             public static string AcceptedDate => "Microsoft.VSTS.CodeReview.AcceptedDate";
             public static string IncidentCount => "IcM.IncidentCount";
+            public static string ResolvedBy => "Microsoft.VSTS.Common.ResolvedBy";
+            public static string Tags => "System.Tags";
         }
 
         public class ADOWorkItemJsonConverter : ADOBaseObjectConverter<ADOWorkItem>
@@ -49,6 +53,7 @@ namespace DevOpsMinClient.DataTypes
                     DeploymentDate = TokenOrDefault<DateTime>(jsonToken, $"$['fields']['{FieldNames.DeploymentDate}']"),
                     AssignedTo = TokenOrDefault<ADOPerson>(jsonToken, $"['fields']['{FieldNames.AssignedTo}']"),
                     LastHitDate = TokenOrDefault<DateTime>(jsonToken, $"['fields']['{FieldNames.AcceptedDate}']"),
+                    ResolvedBy = TokenOrDefault<ADOPerson>(jsonToken, $"['fields']['{FieldNames.ResolvedBy}']"),
                 };
 
                 var fieldsObject = TokenOrDefault<JObject>(jsonToken, "$.fields");

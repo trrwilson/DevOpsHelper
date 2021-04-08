@@ -34,6 +34,9 @@ namespace DevOpsHelper.Commands
                 {
                     PersonalAccessToken = OptionDefinition.AccessToken.ValueFrom(this.baseCommand),
                 };
+
+                this.client.ErrorReceived += (label, error)
+                    => Console.WriteLine($"WARNING: error countered during '{label}':\n{error}");
             }
 
 

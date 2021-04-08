@@ -4,6 +4,7 @@ using DevOpsMinClient.DataTypes;
 using DevOpsMinClient.DataTypes.QueryFilters;
 using DevOpsMinClient.Helpers;
 using Microsoft.Extensions.CommandLineUtils;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -25,6 +26,8 @@ namespace DevOpsHelper.Commands
                 OptionDefinition.UpdateTestFailureBugs.Branch,
                 OptionDefinition.UpdateTestFailureBugs.QueryId,
                 OptionDefinition.UpdateTestFailureBugs.BugAreaPath,
+                OptionDefinition.UpdateTestFailureBugs.BugIterationPath,
+                OptionDefinition.UpdateTestFailureBugs.BugTag,
                 OptionDefinition.UpdateTestFailureBugs.AutoFileThreshold,
             };
 
@@ -161,6 +164,8 @@ namespace DevOpsHelper.Commands
             List<WorkItemInfoCollection> workItemInfoList)
         {
             var bugAreaPath = OptionDefinition.UpdateTestFailureBugs.BugAreaPath.ValueFrom(this.baseCommand);
+            var bugIterationPath = OptionDefinition.UpdateTestFailureBugs.BugIterationPath.ValueFrom(this.baseCommand);
+
             Console.WriteLine($"Beginning scan of {workItemInfoList.Count} work items...");
 
             foreach (var workItemEntry in workItemInfoList)
@@ -215,6 +220,12 @@ namespace DevOpsHelper.Commands
                     || !areaPath.StartsWith(bugAreaPath))
                 {
                     workItemPatches.Replace($"/fields/{ADOWorkItem.FieldNames.AreaPath}", bugAreaPath);
+                }
+
+                if (!workItem.RawFields.TryGetValue(ADOWorkItem.FieldNames.IterationPath, out var iterationPath)
+                    || (!iterationPath.StartsWith(iterationPath)))
+                {
+                    workItemPatches.Add($"/fields/{ADOWorkItem.FieldNames.IterationPath}", bugIterationPath);
                 }
 
                 if (!workItem.RawFields.TryGetValue(ADOWorkItem.FieldNames.IncidentCount, out var incidentCount)
@@ -272,17 +283,16 @@ namespace DevOpsHelper.Commands
                     .SelectMany(entry => entry.Failures)
                     .ToList();
 
-                if (WorkItemIsResolvedAndShouldNotBe(inQueryItem, failuresForItem))
+                var aggregateChanges = new JsonPatchBuilder(inQueryItem);
+                aggregateChanges += ChangesWhenResolved(inQueryItem, failuresForItem);
+                aggregateChanges += ChangesWhenActive(inQueryItem, failuresForItem);
+                aggregateChanges += ChangesForNoHits(inQueryItem, failuresForItem);
+                aggregateChanges += ChangesWhenUnassigned(inQueryItem, failuresForItem);
+                aggregateChanges += ChangesForConsistency(inQueryItem, failuresForItem);
+
+                if (aggregateChanges.PatchCount > 1)
                 {
-                    await AutoReactivateWorkItemAsync(client, inQueryItem);
-                }
-                else if (WorkItemIsActiveAndShouldNotBe(inQueryItem, failuresForItem))
-                {
-                    await AutoResolveWorkItemAsync(client, inQueryItem);
-                }
-                else if (!failuresForItem.Any())
-                {
-                    await ResolveWorkItemForNoHitsAsync(client, inQueryItem);
+                    await this.client.UpdateWorkItemAsync(inQueryItem, aggregateChanges);
                 }
                 else
                 {
@@ -291,6 +301,32 @@ namespace DevOpsHelper.Commands
             }
 
             Console.WriteLine($"...done. {countNoChanges}/{inQueryItems.Count} were up to date.");
+        }
+
+        private static JsonPatchBuilder ChangesWhenResolved(
+            ADOWorkItem workItem,
+            List<ADOTestFailureInfo> failuresForWorkItem)
+        {
+            var result = new JsonPatchBuilder();
+
+            if (workItem.State != "Resolved")
+            {
+                return result;
+            }
+
+            if (WorkItemIsResolvedAndShouldNotBe(workItem, failuresForWorkItem))
+            {
+                Console.WriteLine($" Reactivating: {workItem.Id} -- {workItem.Title.Truncate(65)}");
+                result
+                    .Replace($"/fields/{ADOWorkItem.FieldNames.State}", "New")
+                    .Remove($"/fields/{ADOWorkItem.FieldNames.AssignedTo}")
+                    .Add($"/fields/{ADOWorkItem.FieldNames.History}",
+                        $"[Automatic message] This bug has been automatically reactivated as it has associated "
+                        + $"failures recorded that happened <i>after</i> the resolution date of "
+                        + $"{workItem.ResolvedDate}.");
+            }
+
+            return result;
         }
 
         private static bool WorkItemIsResolvedAndShouldNotBe(
@@ -302,19 +338,81 @@ namespace DevOpsHelper.Commands
                     .Any(failure => failure.When > workItem.ResolvedDate + TimeSpan.FromHours(2));
         }
 
-        private static async Task AutoReactivateWorkItemAsync(
-            ADOClient client,
-            ADOWorkItem workItem)
+        private static JsonPatchBuilder ChangesWhenActive(
+            ADOWorkItem workItem,
+            List<ADOTestFailureInfo> failuresForWorkItem)
         {
-            Console.WriteLine($" Reactivating: {workItem.Id} -- {workItem.Title.Truncate(65)}");
-            var patches = new JsonPatchBuilder(workItem)
-                .Replace($"/fields/{ADOWorkItem.FieldNames.State}", "Active")
-                .Remove($"/fields/{ADOWorkItem.FieldNames.AssignedTo}")
-                .Add($"/fields/{ADOWorkItem.FieldNames.History}",
-                    $"[Automatic message] This bug has been automatically reactivated as it has associated "
-                    + $"failures recorded that happened <i>after</i> the resolution date of "
-                    + $"{workItem.ResolvedDate}.");
-            await client.UpdateWorkItemAsync(workItem, patches);
+            var result = new JsonPatchBuilder();
+
+            if (workItem.State != "New" && workItem.State != "Active")
+            {
+                return result;
+            }
+
+            if (WorkItemIsActiveAndShouldNotBe(workItem, failuresForWorkItem))
+            {
+                Console.WriteLine($" Resolving: {workItem.Id} -- {workItem.Title.Truncate(65)}");
+                var relevantDate = workItem.DeploymentDate > workItem.ResolvedDate
+                                ? workItem.DeploymentDate : workItem.ResolvedDate;
+                result
+                    .Replace($"/fields/{ADOWorkItem.FieldNames.State}", "Resolved")
+                    .Add($"/fields/{ADOWorkItem.FieldNames.History}",
+                        $"[Automatic message] this bug is being automatically resolved because all linked "
+                        + $"failures have a recorded time <i>before</i> the resolve or deployment date of "
+                        + $"{relevantDate}");
+            }
+
+            if (workItem.AssignedTo?.DisplayName?.Length == 0
+                && workItem?.State == "Active")
+            {
+                result
+                    .Replace($"/fields/{ADOWorkItem.FieldNames.State}", "New");
+            }
+
+            return result;
+        }
+
+        private static JsonPatchBuilder ChangesWhenUnassigned(ADOWorkItem workItem, List<ADOTestFailureInfo> _)
+        {
+            if (workItem.AssignedTo?.Email?.Length > 0)
+            {
+                return new JsonPatchBuilder();
+            }
+
+            var result = new JsonPatchBuilder();
+
+            if (workItem.ResolvedBy?.Email?.Length > 0)
+            {
+                Console.WriteLine($"{workItem.Id}: Resolved with empty AssignedTo ->"
+                    + $" ResolvedBy of {workItem.ResolvedBy.DisplayName}");
+                result.Add(
+                    $"/fields/{ADOWorkItem.FieldNames.AssignedTo}",
+                    workItem.ResolvedBy.Email);
+            }
+
+            if (workItem.State == "Active")
+            {
+                result.Replace($"/fields/{ADOWorkItem.FieldNames.State}", "New");
+            }
+
+            return result;
+        }
+
+        private JsonPatchBuilder ChangesForConsistency(ADOWorkItem workItem, List<ADOTestFailureInfo> _)
+        {
+            var tagToEnsure = OptionDefinition.UpdateTestFailureBugs.BugTag.ValueFrom(this.baseCommand);
+
+            var result = new JsonPatchBuilder();
+            
+            if (tagToEnsure?.Length > 0
+                && (!workItem.RawFields.TryGetValue(ADOWorkItem.FieldNames.Tags, out var currentTags)
+                || !currentTags.Contains(tagToEnsure)))
+            {
+                result
+                    .Add($"/fields/{ADOWorkItem.FieldNames.Tags}", $"{currentTags}; {tagToEnsure}");
+            }
+
+            return result;
         }
 
         private static bool WorkItemIsActiveAndShouldNotBe(
@@ -327,32 +425,20 @@ namespace DevOpsHelper.Commands
                 && failuresForWorkItem.All(failure => failure.When < workItem.DeploymentDate);
         }
 
-        private static async Task AutoResolveWorkItemAsync(
-            ADOClient client,
-            ADOWorkItem workItem)
+        private static JsonPatchBuilder ChangesForNoHits(ADOWorkItem workItem, List<ADOTestFailureInfo> failures)
         {
-            Console.WriteLine($" Resolving: {workItem.Id} -- {workItem.Title.Truncate(65)}");
-            var relevantDate = workItem.DeploymentDate > workItem.ResolvedDate
-                            ? workItem.DeploymentDate : workItem.ResolvedDate;
-            var patches = new JsonPatchBuilder(workItem)
-                .Replace($"/fields/{ADOWorkItem.FieldNames.State}", "Resolved")
-                .Add($"/fields/{ADOWorkItem.FieldNames.History}",
-                    $"[Automatic message] this bug is being automatically resolved because all linked "
-                    + $"failures have a recorded time <i>before</i> the resolve or deployment date of "
-                    + $"{relevantDate}");
-            await client.UpdateWorkItemAsync(workItem, patches);
-        }
+            if (failures.Count != 0)
+            {
+                return new JsonPatchBuilder();
+            }
 
-        private static async Task ResolveWorkItemForNoHitsAsync(ADOClient client, ADOWorkItem workItem)
-        {
             Console.WriteLine($"Clearing (no hits): {workItem.Id} : {workItem.Title}");
-            var patches = new JsonPatchBuilder(workItem)
+            return new JsonPatchBuilder()
                 .Remove($"/fields/{ADOWorkItem.FieldNames.IncidentCount}")
                 .Replace($"/fields/{ADOWorkItem.FieldNames.State}", "Resolved")
                 .Add($"/fields/{ADOWorkItem.FieldNames.History}",
                     $"[Automated message] Resolving this bug as no linked test failures have been observed"
                     + $" in the last 14 days.");
-            await client.UpdateWorkItemAsync(workItem, patches);
         }
 
         struct FailureInfoCollection

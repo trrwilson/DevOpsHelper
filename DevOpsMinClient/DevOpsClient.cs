@@ -279,15 +279,24 @@ namespace DevOpsMinClient
         protected virtual Task<string> PostAsync(string url, dynamic payload)
             => this.PostAsync(url, payload != null ? JObject.FromObject(payload).ToString() : null);
 
-        protected virtual async Task<string> PatchAsync(string url, string payload)
+        protected virtual async Task<string> PatchAsync(
+            string url,
+            string payload,
+            string contentType = "application/json-patch+json")
         {
             var response = await this.baseClient.PatchAsync(
                 url,
-                new StringContent(payload, Encoding.UTF8, "application/json-patch+json"));
+                new StringContent(payload, Encoding.UTF8, contentType));
             await this.CheckResponseAsync(response, "patch");
             var responseText = await response.Content.ReadAsStringAsync();
             return responseText;
         }
+
+        protected virtual Task<string> PatchAsync(
+            string url,
+            dynamic payload,
+            string contentType = "application/json-patch+json")
+        => this.PatchAsync(url, JObject.FromObject(payload).ToString(), contentType);
 
         protected virtual Task<string> PatchAsync(string url, dynamic payload)
             => this.PatchAsync(url, JObject.FromObject(payload).ToString());
@@ -462,7 +471,8 @@ namespace DevOpsMinClient
                 new
                 {
                     content = newContent,
-                });
+                },
+                "application/json");
         }
 
         public async Task<ADOCommit> GetBuildHeadCommitAsync(ADOBuild build)
@@ -671,7 +681,8 @@ namespace DevOpsMinClient
 
         private async Task CheckResponseAsync(HttpResponseMessage response, string label)
         {
-            if (response.StatusCode != System.Net.HttpStatusCode.OK)
+            if (response.StatusCode != System.Net.HttpStatusCode.OK
+                && response.StatusCode != System.Net.HttpStatusCode.NotFound)
             {
                 this.ErrorReceived?.Invoke(label, await response.Content.ReadAsStringAsync());
             }

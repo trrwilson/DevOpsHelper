@@ -286,7 +286,6 @@ namespace DevOpsHelper.Commands
                 var aggregateChanges = new JsonPatchBuilder(inQueryItem);
                 aggregateChanges += ChangesWhenResolved(inQueryItem, failuresForItem);
                 aggregateChanges += ChangesWhenActive(inQueryItem, failuresForItem);
-                aggregateChanges += ChangesForNoHits(inQueryItem, failuresForItem);
                 aggregateChanges += ChangesWhenUnassigned(inQueryItem, failuresForItem);
                 aggregateChanges += ChangesForConsistency(inQueryItem, failuresForItem);
 
@@ -355,6 +354,7 @@ namespace DevOpsHelper.Commands
                 var relevantDate = workItem.DeploymentDate > workItem.ResolvedDate
                                 ? workItem.DeploymentDate : workItem.ResolvedDate;
                 result
+                    .Remove($"/fields/{ADOWorkItem.FieldNames.IncidentCount}")
                     .Replace($"/fields/{ADOWorkItem.FieldNames.State}", "Resolved")
                     .Add($"/fields/{ADOWorkItem.FieldNames.History}",
                         $"[Automatic message] this bug is being automatically resolved because all linked "
@@ -423,22 +423,6 @@ namespace DevOpsHelper.Commands
                 workItem.ResolvedDate : workItem.DeploymentDate;
             return (workItem.State == "New" || workItem.State == "Active")
                 && failuresForWorkItem.All(failure => failure.When < workItem.DeploymentDate);
-        }
-
-        private static JsonPatchBuilder ChangesForNoHits(ADOWorkItem workItem, List<ADOTestFailureInfo> failures)
-        {
-            if (failures.Count != 0)
-            {
-                return new JsonPatchBuilder();
-            }
-
-            Console.WriteLine($"Clearing (no hits): {workItem.Id} : {workItem.Title}");
-            return new JsonPatchBuilder()
-                .Remove($"/fields/{ADOWorkItem.FieldNames.IncidentCount}")
-                .Replace($"/fields/{ADOWorkItem.FieldNames.State}", "Resolved")
-                .Add($"/fields/{ADOWorkItem.FieldNames.History}",
-                    $"[Automated message] Resolving this bug as no linked test failures have been observed"
-                    + $" in the last 14 days.");
         }
 
         struct FailureInfoCollection

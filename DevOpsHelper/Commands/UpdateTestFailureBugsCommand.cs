@@ -223,7 +223,7 @@ namespace DevOpsHelper.Commands
                 }
 
                 if (!workItem.RawFields.TryGetValue(ADOWorkItem.FieldNames.IterationPath, out var iterationPath)
-                    || (!iterationPath.StartsWith(iterationPath)))
+                    || (!iterationPath.StartsWith(bugIterationPath)))
                 {
                     workItemPatches.Add($"/fields/{ADOWorkItem.FieldNames.IterationPath}", bugIterationPath);
                 }

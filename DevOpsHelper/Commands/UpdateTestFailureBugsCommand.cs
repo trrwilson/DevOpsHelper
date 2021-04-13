@@ -8,6 +8,7 @@ using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 namespace DevOpsHelper.Commands
@@ -30,8 +31,11 @@ namespace DevOpsHelper.Commands
                 OptionDefinition.UpdateTestFailureBugs.BugTag,
                 OptionDefinition.UpdateTestFailureBugs.AutoFileThreshold,
             };
-
-            command.AddOptions(requiredOptions);
+            var nonRequiredOptions = new OptionDefinition[]
+            {
+                OptionDefinition.UpdateTestFailureBugs.FailureIgnorePatterns,
+            };
+            command.AddOptions(requiredOptions, nonRequiredOptions);
 
             var localCommand = new UpdateTestFailureBugsCommand(command, requiredOptions);
 
@@ -66,10 +70,21 @@ namespace DevOpsHelper.Commands
 
             Console.WriteLine($"Querying failures for {branch}...");
             var queriedFailures = await client.GetTestFailuresAsync(filter);
-            var nameToFailureGroups = queriedFailures.GroupBy(failure => failure.TestFullName);
+            var fullNameToFailureGroups = queriedFailures.GroupBy(failure => failure.TestFullName);
 
-            Console.WriteLine($"Finding work items related to {queriedFailures.Count} failures "
-                + $"({nameToFailureGroups.Count()} distinct)...");
+            var filters = OptionDefinition.UpdateTestFailureBugs.FailureIgnorePatterns.ValueFrom(this.baseCommand);
+            var nameToFailureGroups = fullNameToFailureGroups
+                .Where(group => filters == null || filters.All(
+                    filter => !Regex.IsMatch(group.Key, filter)));
+
+            var totalFailures = queriedFailures.Count;
+            var distinctFailures = fullNameToFailureGroups.Count();
+            var filteredDistinctFailures = nameToFailureGroups.Count();
+
+            Console.WriteLine($"Finding work items related to {totalFailures} failures "
+                + $"({distinctFailures} distinct"
+                    + (filteredDistinctFailures != distinctFailures ? $", {filteredDistinctFailures} after filters)" : ")")
+                    + "...");
 
             var result = (await Task.WhenAll(nameToFailureGroups
                 .Select(async nameDataPair =>

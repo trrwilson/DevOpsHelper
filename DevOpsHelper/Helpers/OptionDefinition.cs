@@ -153,6 +153,10 @@ namespace DevOpsHelper
             public static OptionDefinition<int> AutoFileThreshold = new(
                 "--auto-file-threshold",
                 "If non-negative, the number of recent failures after which a test will auto-file a new bug.");
+            public static OptionDefinition<List<string>> FailureIgnorePatterns = new(
+                "--failure-ignore-patterns",
+                "A semicolon-delimited list of regex patterns against which matching failures will be ignored.",
+                new List<string>());
         }
     }
 

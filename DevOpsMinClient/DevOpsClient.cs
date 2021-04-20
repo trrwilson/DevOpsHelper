@@ -518,16 +518,16 @@ namespace DevOpsMinClient
             return workItems;
         }
 
-        public async Task<List<ADOTestFailureInfo>> GetTestFailuresAsync(ADOTestQueryFilter filter)
+        public async Task<List<AdoTestResultInfo>> GetTestResultsAsync(ADOTestQueryFilter filter)
         {
             var url = $"{this.GetAnalyticsUrl()}/_odata/v4.0-preview/TestResults"
                 + $"?$apply={filter}"
-                + $"/groupby((Test/TestCaseReferenceId, TestResultId, TestRun/TestRunId, Test/TestName, "
+                + $"/groupby((Test/TestCaseReferenceId, TestResultId, TestRun/TestRunId, Test/TestName, Outcome, "
                 + $"Test/FullyQualifiedTestName, PipelineRun/RunNumber, PipelineRun/PipelineRunId, TestRun/CompletedDate))";
             var response = await this.GetAsync(url);
             var jsonResponse = JObject.Parse(response);
             return jsonResponse["value"]
-                .Select(value => value.ToObject<ADOTestFailureInfo>())
+                .Select(value => value.ToObject<AdoTestResultInfo>())
                 .ToList();
         }
 

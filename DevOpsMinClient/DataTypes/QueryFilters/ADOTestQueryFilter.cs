@@ -10,6 +10,7 @@ namespace DevOpsMinClient.DataTypes.QueryFilters
         public string TestName { get; set; }
         public string Outcome { get; set; }
         public string Branch { get; set; }
+        public int BuildId { get; set; }
 
         public DateTime Start { get; set; } = DateTime.MinValue;
 
@@ -23,7 +24,13 @@ namespace DevOpsMinClient.DataTypes.QueryFilters
                 {
                     quote ??= !value.All(Char.IsDigit);
                     value = quote.Value ? $"'{value}'" : value;
-                    builder.Append($" and {key} {op} {value}");
+                    var formatted = op switch
+                    {
+                        _ when new string[] { "eq", "ge", "le", "gt", "lt" }.Contains(op) => $"{key} {op} {value}",
+                        _ when new string[] { "contains" }.Contains(op) => $"{op}({key},{value})",
+                        _ => throw new NotImplementedException()
+                    };
+                    builder.Append($" and {formatted}");
                 }
             }
             void AppendIntIfPresent(string key, int value, string op = "eq")
@@ -31,8 +38,9 @@ namespace DevOpsMinClient.DataTypes.QueryFilters
             void AppendDateIfPresent(string key, DateTime value, string op = "eq")
                 => AppendIfPresent(key, value == DateTime.MinValue ? "" : $"{value:o}", op, false);
 
+            AppendIntIfPresent("PipelineRun/PipelineRunId", this.BuildId);
             AppendIntIfPresent("Pipeline/PipelineId", this.Pipeline);
-            AppendIfPresent("Test/TestName", this.TestName);
+            AppendIfPresent("Test/TestName", this.TestName, "contains");
             AppendIfPresent("Outcome", this.Outcome);
             AppendDateIfPresent("StartedDate", this.Start, "ge");
             AppendIfPresent("Branch/BranchName", this.Branch);

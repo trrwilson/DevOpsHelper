@@ -1,6 +1,7 @@
 ﻿using DevOpsHelper.Helpers;
 using DevOpsMinClient;
 using DevOpsMinClient.DataTypes;
+using DevOpsMinClient.DataTypes.Details;
 using DevOpsMinClient.DataTypes.QueryFilters;
 using DevOpsMinClient.Helpers;
 using Microsoft.Extensions.CommandLineUtils;
@@ -69,7 +70,7 @@ namespace DevOpsHelper.Commands
             };
 
             Console.WriteLine($"Querying failures for {branch}...");
-            var queriedFailures = await client.GetTestFailuresAsync(filter);
+            var queriedFailures = await client.GetTestResultsAsync(filter);
             var fullNameToFailureGroups = queriedFailures.GroupBy(failure => failure.TestFullName);
 
             var filters = OptionDefinition.UpdateTestFailureBugs.FailureIgnorePatterns.ValueFrom(this.baseCommand);
@@ -148,7 +149,7 @@ namespace DevOpsHelper.Commands
                         result.Add(new WorkItemInfoCollection()
                         {
                             WorkItem = mostRecentWorkItem,
-                            Failures = new List<ADOTestFailureInfo>(),
+                            Failures = new List<AdoTestResultInfo>(),
                         });
                     }
                     result
@@ -163,14 +164,14 @@ namespace DevOpsHelper.Commands
 
         private static bool AnyWorkItemResolvedAfterAllFailures(
             IEnumerable<ADOWorkItem> workItems,
-            IEnumerable<ADOTestFailureInfo> failures)
+            IEnumerable<AdoTestResultInfo> failures)
         {
             return workItems.Any(workItem => failures.All(failure => workItem.ResolvedDate > failure.When));
         }
 
         private static bool WorkItemWasResolvedAfterFailures(
             ADOWorkItem workItem,
-            List<ADOTestFailureInfo> failures)
+            List<AdoTestResultInfo> failures)
         {
             return failures.All(failure => workItem.ResolvedDate > failure.When);
         }
@@ -299,6 +300,8 @@ namespace DevOpsHelper.Commands
                     .ToList();
 
                 var aggregateChanges = new JsonPatchBuilder(inQueryItem);
+                aggregateChanges += ChangesForUnassociatedRelations(inQueryItem, failuresForItem);
+                aggregateChanges += ChangesForNoFailures(inQueryItem, failuresForItem);
                 aggregateChanges += ChangesWhenResolved(inQueryItem, failuresForItem);
                 aggregateChanges += ChangesWhenActive(inQueryItem, failuresForItem);
                 aggregateChanges += ChangesWhenUnassigned(inQueryItem, failuresForItem);
@@ -317,9 +320,52 @@ namespace DevOpsHelper.Commands
             Console.WriteLine($"...done. {countNoChanges}/{inQueryItems.Count} were up to date.");
         }
 
+        private static JsonPatchBuilder ChangesForUnassociatedRelations(
+            ADOWorkItem workItem,
+            List<AdoTestResultInfo> failuresForWorkItem)
+        {
+            var result = new JsonPatchBuilder();
+
+            for (int i = 0; i < workItem.Relations.Count; i++)
+            {
+                var relation = workItem.Relations[i];
+                if ((relation.Name == "Test" && !failuresForWorkItem
+                    .Any(workItemFailure => workItemFailure.GetTestUrl() == relation.Url))
+                    || (relation.Name == "Test Result" && !failuresForWorkItem
+                    .Any(workItemFailure => workItemFailure.GetResultUrl() == relation.Url))
+                    || (relation.Name == "Build" && !failuresForWorkItem
+                    .Any(workItemFailure => workItemFailure.GetBuildUrl() == relation.Url)))
+                {
+                    result.Remove($"/relations/{i}");
+                }
+            }
+
+            return result;
+        }
+
+        private static JsonPatchBuilder ChangesForNoFailures(
+            ADOWorkItem workItem,
+            List<AdoTestResultInfo> failuresForWorkItem)
+        {
+            var result = new JsonPatchBuilder();
+            if (!failuresForWorkItem.Any())
+            {
+                Console.WriteLine($" Resolving (no failures): {workItem.Id} -- {workItem.Title.Truncate(65)}");
+                result.Remove($"/fields/{ADOWorkItem.FieldNames.IncidentCount}");
+                if (workItem.State == "Active" || workItem.State == "New")
+                {
+                    result.Replace($"/fields/{ADOWorkItem.FieldNames.State}", "Resolved")
+                        .Add($"/fields/{ADOWorkItem.FieldNames.History}",
+                            $"[Automatic message] this bug is being automatically resolved because it no longer has"
+                            + $" any observed failures in the last 14 days.");
+                }
+            }
+            return result;
+        }
+
         private static JsonPatchBuilder ChangesWhenResolved(
             ADOWorkItem workItem,
-            List<ADOTestFailureInfo> failuresForWorkItem)
+            List<AdoTestResultInfo> failuresForWorkItem)
         {
             var result = new JsonPatchBuilder();
 
@@ -345,7 +391,7 @@ namespace DevOpsHelper.Commands
 
         private static bool WorkItemIsResolvedAndShouldNotBe(
             ADOWorkItem workItem,
-            List<ADOTestFailureInfo> failuresForWorkItem)
+            List<AdoTestResultInfo> failuresForWorkItem)
         {
             return workItem.State == "Resolved"
                 && failuresForWorkItem
@@ -354,7 +400,7 @@ namespace DevOpsHelper.Commands
 
         private static JsonPatchBuilder ChangesWhenActive(
             ADOWorkItem workItem,
-            List<ADOTestFailureInfo> failuresForWorkItem)
+            List<AdoTestResultInfo> failuresForWorkItem)
         {
             var result = new JsonPatchBuilder();
 
@@ -363,9 +409,9 @@ namespace DevOpsHelper.Commands
                 return result;
             }
 
-            if (WorkItemIsActiveAndShouldNotBe(workItem, failuresForWorkItem))
+            if (WorkItemHasOnlyPreFixFailures(workItem, failuresForWorkItem))
             {
-                Console.WriteLine($" Resolving: {workItem.Id} -- {workItem.Title.Truncate(65)}");
+                Console.WriteLine($" (Re-)Resolving: {workItem.Id} -- {workItem.Title.Truncate(65)}");
                 var relevantDate = workItem.DeploymentDate > workItem.ResolvedDate
                                 ? workItem.DeploymentDate : workItem.ResolvedDate;
                 result
@@ -387,7 +433,7 @@ namespace DevOpsHelper.Commands
             return result;
         }
 
-        private static JsonPatchBuilder ChangesWhenUnassigned(ADOWorkItem workItem, List<ADOTestFailureInfo> _)
+        private static JsonPatchBuilder ChangesWhenUnassigned(ADOWorkItem workItem, List<AdoTestResultInfo> _)
         {
             if (workItem.AssignedTo?.Email?.Length > 0)
             {
@@ -413,7 +459,7 @@ namespace DevOpsHelper.Commands
             return result;
         }
 
-        private JsonPatchBuilder ChangesForConsistency(ADOWorkItem workItem, List<ADOTestFailureInfo> _)
+        private JsonPatchBuilder ChangesForConsistency(ADOWorkItem workItem, List<AdoTestResultInfo> _)
         {
             var tagToEnsure = OptionDefinition.UpdateTestFailureBugs.BugTag.ValueFrom(this.baseCommand);
 
@@ -430,27 +476,28 @@ namespace DevOpsHelper.Commands
             return result;
         }
 
-        private static bool WorkItemIsActiveAndShouldNotBe(
+        private static bool WorkItemHasOnlyPreFixFailures(
             ADOWorkItem workItem,
-            List<ADOTestFailureInfo> failuresForWorkItem)
+            List<AdoTestResultInfo> failuresForWorkItem)
         {
             var mostRelevantDate = workItem.ResolvedDate > workItem.DeploymentDate ?
                 workItem.ResolvedDate : workItem.DeploymentDate;
             return (workItem.State == "New" || workItem.State == "Active")
+                && failuresForWorkItem.Any()
                 && failuresForWorkItem.All(failure => failure.When < workItem.DeploymentDate);
         }
 
         struct FailureInfoCollection
         {
             public string Name;
-            public List<ADOTestFailureInfo> Failures;
+            public List<AdoTestResultInfo> Failures;
             public List<ADOWorkItem> WorkItems;
         }
 
         struct WorkItemInfoCollection
         {
             public ADOWorkItem WorkItem;
-            public List<ADOTestFailureInfo> Failures;
+            public List<AdoTestResultInfo> Failures;
         }
     }
 }

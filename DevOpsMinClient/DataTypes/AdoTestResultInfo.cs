@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 namespace DevOpsMinClient.DataTypes
 {
     [JsonConverter(typeof(TestFailureInfoConverter))]
-    public class ADOTestFailureInfo
+    public class AdoTestResultInfo
     {
         public int TestId;
         public int RunResultId;
@@ -18,6 +18,7 @@ namespace DevOpsMinClient.DataTypes
         public string BuildLabel;
         public string TestName;
         public string TestFullName;
+        public string Outcome;
         public DateTime When;
 
         public string GetTestUrl() => $"vstfs:///TestManagement/TcmTest/tcm.{this.TestId}";
@@ -40,7 +41,7 @@ namespace DevOpsMinClient.DataTypes
                     return (token == null) ? default : token.Value<T>();
                 }
 
-                return new ADOTestFailureInfo()
+                return new AdoTestResultInfo()
                 {
                     BuildId = TokenValue<int>("$.PipelineRun.PipelineRunId"),
                     BuildLabel = TokenValue<string>("$.PipelineRun.RunNumber"),
@@ -50,6 +51,7 @@ namespace DevOpsMinClient.DataTypes
                     RunId = TokenValue<int>("$.TestRun.TestRunId"),
                     TestId = TokenValue<int>("$.Test.TestCaseReferenceId"),
                     When = TokenValue<DateTime>("$.TestRun.CompletedDate"),
+                    Outcome = TokenValue<string>("$.Outcome"),
                 };
             }
 

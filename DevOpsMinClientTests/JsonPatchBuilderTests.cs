@@ -1,4 +1,8 @@
-﻿using DevOpsMinClient.Helpers;
+﻿using DevOpsMinClient.DataTypes;
+using DevOpsMinClient.DataTypes.Details;
+using DevOpsMinClient.Helpers;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
 using NUnit.Framework;
 using System;
 using System.Collections.Generic;
@@ -99,6 +103,226 @@ namespace DevOpsMinClientTests
                 .Remove(this.removePath);
             original += toBeAdded;
             Assert.AreEqual(2, original.PatchCount);
+        }
+
+        [JsonConverter(typeof(ADOBindableTokenConverter<Blah>))]
+        public class Blah
+        {
+            [ADOBindableToken("$.number")]
+            public int NumberValue { get; set; }
+            public string StringValue { get; set; }
+        }
+
+        [Test]
+        public void Foobar()
+        {
+            var json = "{ 'number': 3, 'string': 'hello' }";
+            var b = JsonConvert.DeserializeObject<Blah>(json);
+
+            int x = 3;
+            var a = new List<Func<object>>();
+            a.Add(() => x);
+
+            Assert.IsTrue(a[0].Invoke() is int fromInvoke && fromInvoke == 3);
+        }
+
+        [JsonConverter(typeof(ADOBindableTokenConverter<Foo>))]
+        public class Foo
+        {
+            [ADOBindableToken]
+            public int InferredPathNumber { get; set; }
+            [ADOBindableToken("$.some.period.values.number")]
+            public int NumberValue { get; set; }
+            [ADOBindableToken("$['some.indexy.values']['some.path']['string']")]
+            public string StringValue { get; set; }
+            [ADOBindableToken("$", hideFromDiff:true)]
+            public JObject FullPayload { get; set; }
+        }
+
+        [Test]
+        public void FullPayloadTest()
+        {
+            var payload = JObject.FromObject(new
+            {
+                some = new
+                {
+                    period = new
+                    {
+                        values = new
+                        {
+                            number = 42,
+                            otherThing = 44,
+                            blah = 46,
+                        }
+                    }
+                }
+            }).ToString();
+            var foo = JsonConvert.DeserializeObject<Foo>(payload);
+            Assert.IsTrue(foo.FullPayload.ToString().Contains("otherThing"));
+        }
+
+        [Test]
+        public void WorkItemAdditions()
+        {
+            ADOWorkItem from = GetBaselineWorkItem();
+            ADOWorkItem to = GetBaselineWorkItem();
+
+            var patchFromEmpty = JsonPatchBuilder.GenerateDeltaPatch(new ADOWorkItem(), to);
+            AssertJsonContains(patchFromEmpty, JObject.FromObject(new
+            {
+                op = "add",
+                path = "/id",
+                value = to.Id
+            }));
+            AssertJsonContains(patchFromEmpty, JObject.FromObject(new
+            {
+                op = "add",
+                path = "/fields/System.Title",
+                value = to.Title
+            }));
+
+            var patch = JsonPatchBuilder.GenerateDeltaPatch(from, to);
+            Assert.AreEqual(0, patch.PatchCount);
+
+            to.AssignedTo = new ADOPerson() { DisplayName = "John Doe", Email = "jdoe@jdoe.org" };
+            to.Relations.Add(new ADOWorkItemRelationInfo() { Name = "Test Name", Type = "Test Type" });
+            patch = JsonPatchBuilder.GenerateDeltaPatch(from, to);
+            Assert.AreEqual(2, patch.PatchCount);
+            AssertJsonContains(patch, JObject.FromObject(new
+            {
+                op = "add",
+                path = "/fields/System.AssignedTo",
+                value = new
+                {
+                    uniqueName = to.AssignedTo.Email
+                }
+            }));
+            AssertJsonContains(patch, JObject.FromObject(new
+            {
+                op = "add",
+                path = "/relations/-",
+                value = new
+                {
+                    rel = "ArtifactLink",
+                    url = (string)null,
+                    attributes = new
+                    {
+                        name = "Test Name"
+                    }
+                }
+            }));
+        }
+
+        [Test]
+        public void WorkItemRemovals()
+        {
+            var before = GetBaselineWorkItem();
+            var after = GetBaselineWorkItem();
+            after.Relations.Remove(after.Relations.First(item => item.Index == 19));
+            after.Relations.Remove(after.Relations.First(item => item.Index == 12));
+            after.Relations.Remove(after.Relations.First(item => item.Index == 0));
+
+            var patch = JsonPatchBuilder.GenerateDeltaPatch<ADOWorkItem>(before, after);
+            Assert.AreEqual(3, patch.PatchCount);
+
+            AssertJsonContains(patch, JArray.FromObject(new dynamic[]
+            {
+                new
+                {
+                   op = "remove",
+                   path = "/relations/0"
+                },
+                new
+                {
+                    op = "remove",
+                    path = "/relations/12"
+                },
+                new
+                {
+                    op = "remove",
+                    path = "/relations/19"
+                }
+            }));
+        }
+
+        [Test]
+        public void WorkItemMixedOperations()
+        {
+            var before = GetBaselineWorkItem();
+            var after = GetBaselineWorkItem();
+
+            after.Title = "Modified title";
+            after.State = null;
+            after.Relations.Remove(after.Relations.First(item => item.Index == 12));
+            after.Relations.Add(new ADOWorkItemRelationInfo()
+            {
+                Name = "New relation name",
+                Url = "New relation url"
+            });
+
+            var patch = JsonPatchBuilder.GenerateDeltaPatch(before, after);
+            Assert.AreEqual(4, patch.PatchCount);
+            AssertJsonContains(patch, JObject.FromObject(new
+            {
+                op = "replace",
+                path = "/fields/System.Title",
+                value = "Modified title"
+            }));
+            AssertJsonContains(patch, JObject.FromObject(new
+            {
+                op = "remove",
+                path = "/fields/System.State"
+            }));
+            AssertJsonContains(patch, JObject.FromObject(new
+            {
+                op = "remove",
+                path = "/relations/12"
+            }));
+            AssertJsonContains(patch, JObject.FromObject(new
+            {
+                op = "add",
+                path = "/relations/-",
+                value = new
+                {
+                    rel = "ArtifactLink",
+                    url = "New relation url",
+                    attributes = new
+                    {
+                        name = "New relation name"
+                    },
+                }
+            }));
+        }
+
+        private static ADOWorkItem GetBaselineWorkItem()
+        {
+            var workItem = new ADOWorkItem()
+            {
+                Title = "Baseline work item title",
+                Id = 12345,
+                State = "Active",
+                Relations = new(),
+            };
+            for (int i = 0; i < 20; i++)
+            {
+                workItem.Relations.Add(new ADOWorkItemRelationInfo()
+                {
+                    Index = i,
+                    Name = $"Item {i}"
+                });
+            }
+            return workItem;
+        }
+
+        private void AssertJsonContains(JsonPatchBuilder builder, JToken item)
+            => AssertJsonContains(JArray.Parse(builder.ToString()), item);
+
+        private void AssertJsonContains(JToken haystack, JToken needle)
+        {
+            Assert.IsTrue(haystack.ToString(Formatting.None).Contains(needle.ToString(Formatting.None)),
+                $"JSON didn't contain the expected data.\n"
+                + $"Expected/looked for: \n{needle} \n"
+                + $"Actual/didn't find in: \n{haystack}");
         }
 
         private static string ToActual(JsonPatchBuilder builder)

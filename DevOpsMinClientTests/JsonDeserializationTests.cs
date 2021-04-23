@@ -53,5 +53,11 @@ namespace DevOpsMinClientTests
             Assert.AreEqual("c01407a1-8dbe-4bbf-8f73-668d96a579c2", $"{pr.Repository}");
             Assert.AreEqual("active", pr.Status);
         }
+
+        [Test]
+        public void DeserializeWorkItem()
+        {
+            // var workItem = DeserializeFromFile<ADOWorkItem>("referenceOutput")
+        }
     }
 }

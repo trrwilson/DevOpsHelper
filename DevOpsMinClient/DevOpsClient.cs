@@ -207,19 +207,23 @@ namespace DevOpsMinClient
                 + $"&automatedTestName={HttpUtility.UrlEncode(testName)}";
             var response = await this.GetAsync(url);
             var jsonResponse = JObject.Parse(response);
-            var workItemResults = await Task.WhenAll(jsonResponse["value"]
-                .Select(async workItemReference =>
-                {
-                    var workItemUrl = $"{this.baseUrl}"
-                        + $"/_apis/wit/workItems?ids={workItemReference.Value<int>("id")}&$expand=1";
-                    var workItemResponse = await this.GetAsync(workItemUrl);
-                    var workItemJson = JObject.Parse(workItemResponse);
-                    return workItemJson["value"].First().ToObject<ADOWorkItem>();
-                }));
-            return workItemResults
-                .GroupBy(workItem => workItem.Id)
-                .Select(idWorkItemPair => idWorkItemPair.First())
+            var responseIds = string.Join(
+                ',',
+                jsonResponse["value"]
+                .Select(item => item.Value<int>("id"))
+                .Distinct());
+            if (string.IsNullOrEmpty(responseIds))
+            {
+                return new();
+            }
+            var workItemUrl = $"{this.baseUrl}"
+                + $"/_apis/wit/workItems?ids={responseIds}&$expand=1";
+            var workItemJsonText = await this.GetAsync(workItemUrl);
+            var workItemJson = JObject.Parse(workItemJsonText);
+            var workItemResults = workItemJson["value"]
+                .Select(item => item.ToObject<ADOWorkItem>())
                 .ToList();
+            return workItemResults;
         }
 
         public async Task<JToken> GetTestResultDetailAsync(int testRunId, int testResultId)
@@ -508,12 +512,17 @@ namespace DevOpsMinClient
                     + $"/_apis/wit/wiql/{queryId:D}"
                     + $"?api-version=6.0");
             var intObj = JObject.Parse(responseText);
-            var referencedReponseTexts = (await Task.WhenAll(intObj["workItems"]
-                .Select(async token => await this.GetAsync(token["url"].ToString()))))
+
+            var ids = intObj.Value<JArray>("workItems").Select(item => item.Value<int>("id"));
+            ;
+            var bugDetailsText = await this.GetAsync($"{this.baseUrl}"
+                        + $"/_apis/wit/workItems?ids={string.Join(',', ids)}&$expand=1");
+            var workItems = JObject.Parse(bugDetailsText)["value"]
+                .Select(item => item.ToObject<ADOWorkItem>())
                 .ToList();
-            var workItems = referencedReponseTexts
-                .Select(text => JObject.Parse(text))
-                .Select(token => token.ToObject<ADOWorkItem>())
+
+            var workItem2s = JObject.Parse(bugDetailsText)["value"]
+                .Select(item => item.ToObject<ADOWorkItem>())
                 .ToList();
             return workItems;
         }
@@ -538,22 +547,30 @@ namespace DevOpsMinClient
             string reproSteps)
         {
             var url = $"{this.baseUrl}/_apis/wit/workitems/${type}?api-version=6.0";
-            var content = new JsonPatchBuilder()
-                .Add($"/fields/{ADOWorkItem.FieldNames.AreaPath}", areaPath)
-                .Add($"/fields/{ADOWorkItem.FieldNames.Title}", name)
-                .Add($"/fields/{ADOWorkItem.FieldNames.ReproSteps}", reproSteps);
-            var response = await this.PostAsync(url, content);
+            var newWorkItem = new ADOWorkItem()
+            {
+                Title = name,
+                AreaPath = areaPath,
+                ReproSteps = reproSteps,
+            };
+
+            var patch = JsonPatchBuilder.GenerateDeltaPatch(new ADOWorkItem(), newWorkItem);
+            var response = await this.PostAsync(url, patch);
             var responseJson = JObject.Parse(response);
             return responseJson.ToObject<ADOWorkItem>();
         }
 
-        public async Task UpdateWorkItemAsync(
-            ADOWorkItem workItem,
-            JsonPatchBuilder patches)
+        public async Task<bool> TryUpdateWorkItemAsync(ADOWorkItem workItem)
         {
-            var responseText = await this.PatchAsync(
-                $"{this.baseUrl}/_apis/wit/workitems/{workItem.Id}?api-version=6.0",
-                patches.ToString());
+            var patch = workItem.GenerateDeltaPatch();
+            if (patch.PatchCount > 1)
+            {
+                var responseText = await this.PatchAsync(
+                    $"{this.baseUrl}/_apis/wit/workitems/{workItem.Id}?api-version=6.0",
+                    patch.ToString());
+                return true;
+            }
+            return false;
         }
 
         public async Task UpdateWorkItemAsync(
@@ -572,23 +589,6 @@ namespace DevOpsMinClient
                         value = update.newValue
                     }).ToArray<dynamic>()).ToString());
         }
-
-        public Task UpdateWorkItemFieldsAsync(
-            int workItemId,
-            params (string fieldName, string fieldValue)[] updates)
-            => this.UpdateWorkItemAsync(workItemId, updates
-                .Select(update =>
-                (
-                    "add",
-                    $"/fields/{update.fieldName}",
-                    update.fieldValue as dynamic
-                )).ToArray());
-
-        public Task UpdateWorkItemFieldAsync(int workItemId, string fieldName, string fieldValue)
-            => this.UpdateWorkItemFieldsAsync(workItemId, (fieldName, fieldValue));
-
-        public Task CommentOnWorkItemAsync(int workItemId, string comment)
-            => this.UpdateWorkItemFieldsAsync(workItemId, ("System.History", comment));
 
         public async Task<List<ADOTestResultAnalyticsResult>> GetTestResultAnalyticsResults(ADOTestQueryFilter filter)
         {

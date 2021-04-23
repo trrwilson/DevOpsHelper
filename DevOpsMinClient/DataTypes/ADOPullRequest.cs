@@ -10,35 +10,24 @@ using System.Threading.Tasks;
 
 namespace DevOpsMinClient.DataTypes
 {
-    [JsonConverter(typeof(ADOPullRequestConverter))]
+    [JsonConverter(typeof(ADOBindableTokenConverter<ADOPullRequest>))]
     public class ADOPullRequest
     {
+        [ADOBindableToken("$.pullRequestId")]
         public int Id { get; set; }
+        [ADOBindableToken("$.title")]
         public string Title { get; set; }
+        [ADOBindableToken("$.status")]
         public string Status { get; set; }
+        [ADOBindableToken("$.lastMergeCommit.commitId")]
         public string LastSourceCommitId { get; set; }
+        [ADOBindableToken("$.lastMergeTargetCommit.commitId")]
         public string LastTargetCommitId { get; set; }
+        [ADOBindableToken("$.createdBy")]
         public ADOPerson CreatedBy { get; set; }
+        [ADOBindableToken("$.creationDate")]
         public DateTime CreationDate { get; set; }
+        [ADOBindableToken("$.repository")]
         public ADORepositoryInfo Repository { get; set; }
-
-        public class ADOPullRequestConverter : ADOBaseObjectConverter<ADOPullRequest>
-        {
-            protected override ADOPullRequest PopulateFromToken(JToken jsonToken)
-            {
-
-                return new ADOPullRequest()
-                {
-                    Id = TokenOrDefault<int>(jsonToken, "$.pullRequestId"),
-                    Title = TokenOrDefault<string>(jsonToken, "$.title"),
-                    Status = TokenOrDefault<string>(jsonToken, "$.status"),
-                    CreatedBy = TokenOrDefault<ADOPerson>(jsonToken, "$.createdBy"),
-                    CreationDate = TokenOrDefault<DateTime>(jsonToken, "$.creationDate"),
-                    Repository = TokenOrDefault<ADORepositoryInfo>(jsonToken, "$.repository"),
-                    LastSourceCommitId = TokenOrDefault<string>(jsonToken, "$.lastMergeCommit.commitId"),
-                    LastTargetCommitId = TokenOrDefault<string>(jsonToken, "$.lastMergeTargetCommit.commitId")
-                };
-            }
-        }
     }
 }

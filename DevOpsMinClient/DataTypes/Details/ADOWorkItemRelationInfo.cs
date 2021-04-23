@@ -9,39 +9,30 @@ using System.Threading.Tasks;
 namespace DevOpsMinClient.DataTypes.Details
 {
     [JsonConverter(typeof(WorkItemRelationInfoConverter))]
-    public class ADOWorkItemRelationInfo
+    public class ADOWorkItemRelationInfo : IADOUpdateableCollectionItem
     {
+        [ADOBindableToken("$.rel")]
+        public string Type { get; set; }
+        [ADOBindableToken("$.url")]
+        public string Url { get; set; }
+        [ADOBindableToken("$.attributes.name")]
+        public string Name { get; set; }
+        public int Index { get; set; } = -1;
 
-        public string Type;
-        public string Url;
-        public string Name;
-
-        public class WorkItemRelationInfoConverter : JsonConverter
+        public class WorkItemRelationInfoConverter : ADOBindableTokenConverter<ADOWorkItemRelationInfo>
         {
-            public override bool CanConvert(Type objectType) =>
-                throw new NotImplementedException();
-
-            public override object ReadJson(JsonReader reader, Type objectType, object existingValue, JsonSerializer serializer)
+            public override void WriteJson(JsonWriter writer, ADOWorkItemRelationInfo relation, JsonSerializer serializer)
             {
-                var jsonObject = JObject.ReadFrom(reader);
-
-                T TokenValue<T>(string tokenPattern, T defaultValue = default)
+                serializer.Serialize(writer, JObject.FromObject(new
                 {
-                    var token = jsonObject.SelectToken(tokenPattern);
-                    return (token == null) ? defaultValue : token.Value<T>();
-                }
-
-                return new ADOWorkItemRelationInfo()
-                {
-                    Type = TokenValue<string>("$.rel"),
-                    Url = TokenValue<string>("$.url"),
-                    Name = TokenValue<string>("$.attributes.name", "Unknown")
-                };
+                    rel = "ArtifactLink",
+                    url = relation.Url,
+                    attributes = new
+                    {
+                        name = relation.Name
+                    }
+                }));
             }
-
-            public override void WriteJson(JsonWriter writer, object value, JsonSerializer serializer)
-            =>
-                throw new NotImplementedException();
         }
     }
 }

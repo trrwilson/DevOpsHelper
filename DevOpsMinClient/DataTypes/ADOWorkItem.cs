@@ -1,73 +1,81 @@
 ﻿using DevOpsMinClient.DataTypes.Details;
+using DevOpsMinClient.Helpers;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Linq;
+using System.Reflection;
+using System.Runtime.Serialization;
 
 namespace DevOpsMinClient.DataTypes
 {
     [JsonConverter(typeof(ADOWorkItemJsonConverter))]
     public class ADOWorkItem
     {
+        [ADOBindableToken("$.id")]
         public int Id { get; set; }
-        public string Title { get; set; }
+        [ADOBindableToken("$.rev")]
         public int Revision { get; set; }
+        [ADOBindableFieldToken("System.Title")]
+        public string Title { get; set; }
+        [ADOBindableFieldToken("System.State")]
         public string State { get; set; }
+        [ADOBindableFieldToken("System.AreaPath")]
+        public string AreaPath { get; set; }
+        [ADOBindableFieldToken("System.IterationPath")]
+        public string IterationPath { get; set; }
+        [ADOBindableFieldToken("Microsoft.VSTS.TCM.ReproSteps")]
+        public string ReproSteps { get; set; }
+        [ADOBindableFieldToken("Microsoft.VSTS.Common.ResolvedBy")]
         public ADOPerson ResolvedBy { get; set; }
+        [ADOBindableFieldToken("Microsoft.VSTS.Common.ResolvedDate")]
         public DateTime ResolvedDate { get; set; }
+        [ADOBindableFieldToken("Bing.DeploymentDate")]
         public DateTime DeploymentDate { get; set; }
+        [ADOBindableFieldToken("Microsoft.VSTS.CodeReview.AcceptedDate")]
         public DateTime LastHitDate { get; set; }
-        public IDictionary<string, string> RawFields { get; } = new Dictionary<string, string>();
-        public List<ADOWorkItemRelationInfo> Relations { get; } = new List<ADOWorkItemRelationInfo>();
+        [ADOBindableToken("$.relations")]
+        public List<ADOWorkItemRelationInfo> Relations { get; set; }
+        [ADOBindableFieldToken("IcM.IncidentCount")]
+        public int IncidentCount { get; set; }
+        [ADOBindableFieldToken("System.History")]
+        public string History { get; set; }
+        [ADOBindableToken("$", hideFromDiff:true)]
+        public JObject originalSerializedJson { get; set; }
+        [ADOBindableFieldToken("System.AssignedTo")]
         public ADOPerson AssignedTo { get; set; }
+        [ADOBindableFieldToken("System.Tags")]
+        public string Tags { get; set; }
 
-        public static class FieldNames
+        [OnDeserialized]
+        public void OnDeserialized(StreamingContext _)
         {
-            public static string AreaPath => "System.AreaPath";
-            public static string IterationPath => "System.IterationPath";
-            public static string StoryPoints => "Microsoft.VSTS.Scheduling.StoryPoints";
-            public static string Title => "System.Title";
-            public static string State => "System.State";
-            public static string ReproSteps => "Microsoft.VSTS.TCM.ReproSteps";
-            public static string ResolvedDate => "Microsoft.VSTS.Common.ResolvedDate";
-            public static string History => "System.History";
-            public static string DeploymentDate => "Bing.DeploymentDate";
-            public static string AssignedTo => "System.AssignedTo";
-            public static string AcceptedDate => "Microsoft.VSTS.CodeReview.AcceptedDate";
-            public static string IncidentCount => "IcM.IncidentCount";
-            public static string ResolvedBy => "Microsoft.VSTS.Common.ResolvedBy";
-            public static string Tags => "System.Tags";
+            for (int i = 0; i < this.Relations.Count; i++)
+            {
+                this.Relations[i].Index = i;
+            }
         }
 
-        public class ADOWorkItemJsonConverter : ADOBaseObjectConverter<ADOWorkItem>
+        public JsonPatchBuilder GenerateDeltaPatch()
         {
-            protected override ADOWorkItem PopulateFromToken(JToken jsonToken)
+            var original = originalSerializedJson.ToObject<ADOWorkItem>();
+            original ??= new ADOWorkItem();
+            var result = new JsonPatchBuilder(this);
+            result += JsonPatchBuilder.GenerateDeltaPatch(original, this);
+            return result;
+        }
+
+        private class ADOWorkItemJsonConverter : ADOBindableTokenConverter<ADOWorkItem>
+        {
+            public override ADOWorkItem ReadJson(JsonReader reader, Type _, ADOWorkItem __, bool ___, JsonSerializer ____)
             {
-                var result = new ADOWorkItem()
+                var result = base.ReadJson(reader, _, __, ___, ____);
+                for (int i = 0; i < result.Relations.Count; i++)
                 {
-                    Id = TokenOrDefault<int>(jsonToken, "$.id"),
-                    Revision = TokenOrDefault<int>(jsonToken, "$.rev"),
-                    Title = TokenOrDefault<string>(jsonToken, $"$['fields']['{FieldNames.Title}']"),
-                    ResolvedDate = TokenOrDefault<DateTime>(jsonToken, $"$['fields']['{FieldNames.ResolvedDate}']"),
-                    State = TokenOrDefault<string>(jsonToken, $"$['fields']['{FieldNames.State}']"),
-                    DeploymentDate = TokenOrDefault<DateTime>(jsonToken, $"$['fields']['{FieldNames.DeploymentDate}']"),
-                    AssignedTo = TokenOrDefault<ADOPerson>(jsonToken, $"['fields']['{FieldNames.AssignedTo}']"),
-                    LastHitDate = TokenOrDefault<DateTime>(jsonToken, $"['fields']['{FieldNames.AcceptedDate}']"),
-                    ResolvedBy = TokenOrDefault<ADOPerson>(jsonToken, $"['fields']['{FieldNames.ResolvedBy}']"),
-                };
-
-                var fieldsObject = TokenOrDefault<JObject>(jsonToken, "$.fields");
-                foreach (var fieldProperty in fieldsObject?.Properties())
-                {
-                    result.RawFields.Add(fieldProperty.Name, fieldProperty.Value.ToString());
+                    result.Relations[i].Index = i;
                 }
-
-                var relationsArray = TokenOrDefault<JArray>(jsonToken, "$.relations", new JArray());
-                foreach (var relationToken in relationsArray)
-                {
-                    result.Relations.Add(relationToken.ToObject<ADOWorkItemRelationInfo>());
-                }
-
                 return result;
             }
         }

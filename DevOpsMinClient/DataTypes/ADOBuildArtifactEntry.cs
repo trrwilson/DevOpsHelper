@@ -9,24 +9,14 @@ using System.Threading.Tasks;
 
 namespace DevOpsMinClient.DataTypes
 {
-    [JsonConverter(typeof(ADOBuildArtifactEntryConverter))]
+    [JsonConverter(typeof(ADOBindableTokenConverter<ADOBuildArtifactEntry>))]
     public class ADOBuildArtifactEntry
     {
+        [ADOBindableToken("$.artifactId")]
         public UInt64 Id { get; set; }
+        [ADOBindableToken("$.sourcePath")]
         public string Path { get; set; }
+        [ADOBindableToken("$.size")]
         public int Size { get; set; }
-
-        public class ADOBuildArtifactEntryConverter : ADOBaseObjectConverter<ADOBuildArtifactEntry>
-        {
-            protected override ADOBuildArtifactEntry PopulateFromToken(JToken jsonToken)
-            {
-                return new ADOBuildArtifactEntry()
-                {
-                    Id = TokenOrDefault<UInt64>(jsonToken, "$['artifactId']"),
-                    Path = TokenOrDefault<string>(jsonToken, "$['sourcePath']"),
-                    Size = TokenOrDefault<int>(jsonToken, "$['size']"),
-                };
-            }
-        }
     }
 }

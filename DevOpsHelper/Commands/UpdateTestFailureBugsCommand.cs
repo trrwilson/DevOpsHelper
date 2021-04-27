@@ -379,12 +379,16 @@ namespace DevOpsHelper.Commands
 
         private void ChangesForConsistency(ADOWorkItem workItem, List<AdoTestResultInfo> _)
         {
-            var tagToEnsure = OptionDefinition.UpdateTestFailureBugs.BugTag.ValueFrom(this.baseCommand);
-            if (!workItem.Tags.ToLower().Contains(tagToEnsure.ToLower()))
-            {
-                Console.WriteLine($"{workItem.Id}: Adding '{tagToEnsure}' tag");
-                workItem.Tags += tagToEnsure;
-            }
+            var currentTags = workItem.Tags
+                .Split(';')
+                .Select(tag => tag.Trim())
+                .ToList();
+            var tagsToEnsure = OptionDefinition.UpdateTestFailureBugs.BugTag.ValueFrom(this.baseCommand)
+                .Split(';');
+            var missingTags = tagsToEnsure
+                .Where(tagToEnsure => !workItem.Tags.ToLower().Contains(tagToEnsure.ToLower()));
+            currentTags.AddRange(missingTags);
+            workItem.Tags = string.Join("; ", currentTags);
         }
 
         private static bool WorkItemHasOnlyPreFixFailures(

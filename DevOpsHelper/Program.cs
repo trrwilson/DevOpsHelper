@@ -13,11 +13,12 @@ namespace DevOpsHelper
             };
             app.VersionOption("--version", "0.0.1").ShowInHelpText = false;
             app.HelpOption("-?|--help").ShowInHelpText = false;
-
+            app.Command("QueryBugs", QueryBugCommand.Init);
             app.Command("GetArtifact", GetArtifactCommand.Init);
             app.Command("CheckPRSize", CheckPRSizeCommand.Init);
             app.Command("UpdateTestFailureBugs", UpdateTestFailureBugsCommand.Init);
             app.Command("PrintBranchSizes", PrintBranchSizesCommand.Init);
+            app.Command("FindFailures", FindFailuresCommand.Init);
             app.OnExecute(() =>
             {
                 app.ShowHelp();

@@ -72,6 +72,7 @@ namespace DevOpsMinClient.DataTypes
             public override ADOWorkItem ReadJson(JsonReader reader, Type _, ADOWorkItem __, bool ___, JsonSerializer ____)
             {
                 var result = base.ReadJson(reader, _, __, ___, ____);
+                result.Relations ??= new List<ADOWorkItemRelationInfo>();
                 for (int i = 0; i < result.Relations.Count; i++)
                 {
                     result.Relations[i].Index = i;

@@ -157,6 +157,20 @@ namespace DevOpsHelper
                 "--failure-ignore-patterns",
                 "A semicolon-delimited list of regex patterns against which matching failures will be ignored.",
                 new List<string>());
+            public static OptionDefinition<string> CommonBranchPrefix { get; } = new(
+                "--branch-prefix",
+                "A common prefix, e.g. 'refs/heads/', to assume for all branch names if not present.",
+                "refs/heads/");
+        }
+
+        public static class FindFailures
+        {
+            public static OptionDefinition<int> BuildId = new(
+                "--build-id",
+                "The identifier for the build to query results for.");
+            public static OptionDefinition TestName = new(
+                "--test-name",
+                "The substring to match test names against.");
         }
     }
 

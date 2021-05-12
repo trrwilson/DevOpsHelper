@@ -1,10 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace DevOpsMinClient.DataTypes.Details
 {
@@ -12,7 +7,6 @@ namespace DevOpsMinClient.DataTypes.Details
     public class ADOBindableTokenAttribute : System.Attribute
     {
         public string Path { get; init; }
-        public object OriginalGenericValue { get; set; }
         public Type ValueType { get; set; }
         public bool HideFromDiff { get; init; }
         public string UrlPath

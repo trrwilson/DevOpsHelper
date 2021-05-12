@@ -4,9 +4,6 @@ using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Linq;
-using System.Reflection;
 using System.Runtime.Serialization;
 
 namespace DevOpsMinClient.DataTypes
@@ -18,6 +15,8 @@ namespace DevOpsMinClient.DataTypes
         public int Id { get; set; }
         [ADOBindableToken("$.rev")]
         public int Revision { get; set; }
+        [ADOBindableToken("$['System.WorkItemType']", HideFromDiff = true)]
+        public string WorkItemType { get; set; }
         [ADOBindableFieldToken("System.Title")]
         public string Title { get; set; }
         [ADOBindableFieldToken("System.State")]
@@ -28,6 +27,10 @@ namespace DevOpsMinClient.DataTypes
         public string IterationPath { get; set; }
         [ADOBindableFieldToken("Microsoft.VSTS.TCM.ReproSteps")]
         public string ReproSteps { get; set; }
+        [ADOBindableFieldToken("IcM.IncidentIDs")]
+        public string AutomatedTestContainer { get; set; }
+        [ADOBindableFieldToken("Custom.Mail2BugConversationID")]
+        public string AutomatedTestName { get; set; }
         [ADOBindableFieldToken("Microsoft.VSTS.Common.ResolvedBy")]
         public ADOPerson ResolvedBy { get; set; }
         [ADOBindableFieldToken("Microsoft.VSTS.Common.ResolvedDate")]
@@ -37,7 +40,7 @@ namespace DevOpsMinClient.DataTypes
         [ADOBindableFieldToken("Microsoft.VSTS.CodeReview.AcceptedDate")]
         public DateTime LastHitDate { get; set; }
         [ADOBindableToken("$.relations")]
-        public List<ADOWorkItemRelationInfo> Relations { get; set; }
+        public List<ADOWorkItemRelationInfo> Relations { get; set; } = new();
         [ADOBindableFieldToken("IcM.IncidentCount")]
         public int IncidentCount { get; set; }
         [ADOBindableFieldToken("System.History")]
@@ -60,7 +63,7 @@ namespace DevOpsMinClient.DataTypes
 
         public JsonPatchBuilder GenerateDeltaPatch()
         {
-            var original = originalSerializedJson.ToObject<ADOWorkItem>();
+            ADOWorkItem original = originalSerializedJson?.ToObject<ADOWorkItem>();
             original ??= new ADOWorkItem();
             var result = new JsonPatchBuilder(this);
             result += JsonPatchBuilder.GenerateDeltaPatch(original, this);

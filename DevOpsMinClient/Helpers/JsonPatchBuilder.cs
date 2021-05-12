@@ -1,6 +1,5 @@
 ﻿using DevOpsMinClient.DataTypes;
 using DevOpsMinClient.DataTypes.Details;
-using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;

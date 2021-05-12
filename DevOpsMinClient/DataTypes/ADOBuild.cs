@@ -30,8 +30,8 @@ namespace DevOpsMinClient.DataTypes
 
         [JsonProperty("sourceVersion")]
         public string HeadCommit { get; set; }
-        public string Reason { get; set; }
 
+        public string Reason { get; set; }
 
         public ADOPerson RequestedFor { get; set; }
 

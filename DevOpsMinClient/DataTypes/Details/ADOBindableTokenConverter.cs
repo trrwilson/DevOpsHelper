@@ -24,11 +24,9 @@ namespace DevOpsMinClient.DataTypes.Details
                         var valueInToken = matchingToken.Type == JTokenType.Object
                             ? JsonConvert.DeserializeObject(matchingToken.ToString(), property.PropertyType)
                             : matchingToken.ToObject(property.PropertyType);
-                        bindableAttribute.OriginalGenericValue = valueInToken;
                         bindableAttribute.ValueType = property.PropertyType;
                         property.SetValue(result, valueInToken);                            
                     }
-
                 }
             }
             return result;

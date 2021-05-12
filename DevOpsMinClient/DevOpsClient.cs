@@ -198,7 +198,7 @@ namespace DevOpsMinClient
                 ? null : await this.GetBuildAsync(buildIdToken.Value<int>());
         }
 
-        public async Task<List<ADOWorkItem>> GetWorkItemsRelatedToTestNameAsync(string testName)
+        public async Task<List<ADOWorkItem>> GetWorkItemsRelatedToTestNameAsync(string testName, bool includeClosed = false)
         {
             var url = $"{this.baseUrl}"
                 + $"/_apis/test/Results/WorkItems"
@@ -222,6 +222,7 @@ namespace DevOpsMinClient
             var workItemJson = JObject.Parse(workItemJsonText);
             var workItemResults = workItemJson["value"]
                 .Select(item => item.ToObject<ADOWorkItem>())
+                .Where(item => includeClosed || item.State != "Closed")
                 .ToList();
             return workItemResults;
         }
@@ -233,29 +234,6 @@ namespace DevOpsMinClient
             var resultDetail = JObject.Parse(response);
             return resultDetail;
         }
-
-        public async Task<List<ADOTestRun>> GetTestRunsAsync(ADOTestQueryFilter filter)
-        {
-            var url = $"{this.GetAnalyticsUrl()}"
-                    + $"/_odata/v4.0-preview/TestResults?"
-                    + $"&$apply={filter}"
-                    ; // + $"&$select=Outcome, TestRunId, TestResultId, StartedDate";
-            var responseText = await this.GetAsync(url);
-            var resultJson = JObject.Parse(responseText);
-            var resultTokens = (await Task.WhenAll(resultJson["value"]
-                .Select(async token =>
-                {
-                    var testRun = token.ToObject<ADOTestRun>();
-                    var testRunDetail = (JObject)await GetTestResultDetailAsync(testRun.RunId, testRun.ResultId);
-                    testRun.Name = testRunDetail.SelectToken("$.testCase.name").Value<string>();
-                    testRun.FullName = testRunDetail.SelectToken("$.automatedTestName").Value<string>();
-                    return testRun;
-                })))
-                .OrderByDescending(result => result.RunId)
-                .ToList();
-            return resultTokens;
-        }
-
         protected virtual async Task<string> GetAsync(string url)
         {
             var httpResult = await this.baseClient.GetAsync(url);
@@ -527,50 +505,59 @@ namespace DevOpsMinClient
             return workItems;
         }
 
-        public async Task<List<AdoTestResultInfo>> GetTestResultsAsync(ADOTestQueryFilter filter)
+        public async Task<List<ADOSimpleTestResultInfo>> GetTestResultsAsync(ADOTestQueryFilter filter)
         {
             var url = $"{this.GetAnalyticsUrl()}/_odata/v4.0-preview/TestResults"
                 + $"?$apply={filter}"
-                + $"/groupby((Test/TestCaseReferenceId, TestResultId, TestRun/TestRunId, Test/TestName, Outcome, "
-                + $"Test/FullyQualifiedTestName, PipelineRun/RunNumber, PipelineRun/PipelineRunId, TestRun/CompletedDate))";
+                + $"/groupby(("
+                    + "Outcome, "
+                    + "PipelineRun/PipelineRunId, "
+                    + "Test/TestCaseReferenceId, "
+                    + "Test/ContainerName, "
+                    + "Test/FullyQualifiedTestName, "
+                    + "Test/TestName, "
+                    + "TestResultId, "
+                    + "TestRun/CompletedDate, "
+                    + "TestRun/TestRunId"
+                + "))";
+
             var response = await this.GetAsync(url);
             var jsonResponse = JObject.Parse(response);
             return jsonResponse["value"]
-                .Select(value => value.ToObject<AdoTestResultInfo>())
+                .Select(resultJson => resultJson.ToObject<ADOSimpleTestResultInfo>())
                 .ToList();
         }
 
-        public async Task<ADOWorkItem> CreateWorkItemAsync(
-            string type,
-            string name,
-            string areaPath,
-            string reproSteps)
+        public async Task<ADODetailedTestResultInfo> GetDetailedTestResultInfoAsync(ADOSimpleTestResultInfo simpleInfo)
         {
-            var url = $"{this.baseUrl}/_apis/wit/workitems/${type}?api-version=6.0";
-            var newWorkItem = new ADOWorkItem()
-            {
-                Title = name,
-                AreaPath = areaPath,
-                ReproSteps = reproSteps,
-            };
-
-            var patch = JsonPatchBuilder.GenerateDeltaPatch(new ADOWorkItem(), newWorkItem);
-            var response = await this.PostAsync(url, patch);
-            var responseJson = JObject.Parse(response);
-            return responseJson.ToObject<ADOWorkItem>();
+            var url = $"{this.baseUrl}/_apis/test/Runs/{simpleInfo.RunId}/Results/{simpleInfo.RunResultId}";
+            var response = await this.GetAsync(url);
+            return JsonConvert.DeserializeObject<ADODetailedTestResultInfo>(response);
         }
 
         public async Task<bool> TryUpdateWorkItemAsync(ADOWorkItem workItem)
         {
             var patch = workItem.GenerateDeltaPatch();
-            if (patch.PatchCount > 1)
+            string responseText;
+            if (patch.PatchCount < 2)
             {
-                var responseText = await this.PatchAsync(
+                return false;
+            }
+            else if (workItem.originalSerializedJson == null)
+            {
+                responseText = await this.PostAsync(
+                    $"{this.baseUrl}/_apis/wit/workitems/${workItem.WorkItemType}?api-version=6.0",
+                    patch);
+            }
+            else
+            {
+                responseText = await this.PatchAsync(
                     $"{this.baseUrl}/_apis/wit/workitems/{workItem.Id}?api-version=6.0",
                     patch.ToString());
-                return true;
             }
-            return false;
+            workItem.originalSerializedJson = JObject.Parse(responseText);
+            JsonConvert.PopulateObject(responseText, workItem);
+            return true;
         }
 
         public async Task UpdateWorkItemAsync(
@@ -588,81 +575,6 @@ namespace DevOpsMinClient
                         path = update.path,
                         value = update.newValue
                     }).ToArray<dynamic>()).ToString());
-        }
-
-        public async Task<List<ADOTestResultAnalyticsResult>> GetTestResultAnalyticsResults(ADOTestQueryFilter filter)
-        {
-            JObject summaryQueryObject = null;
-            JObject detailedQueryObject = null;
-
-            var urlBase = $"{this.GetAnalyticsUrl()}/_odata/v4.0-preview/TestResults";
-
-            await Task.WhenAll(
-                Task.Run(async () =>
-                {
-                    var url = $"{urlBase}Daily"
-                        + $"?$apply=filter("
-                            + $"Pipeline/PipelineId eq {filter.Pipeline}"
-                            + $" and Date/Date ge {filter.Start:o}"
-                            + $" and Branch/BranchName eq '{filter.Branch}'"
-                        + ")/groupby((TestSK, Test/TestName), aggregate("
-                            + $"ResultCount with sum as TotalCount"
-                            + $", ResultFailCount with sum as FailedCount))"
-                        + "/filter(FailedCount gt 0)";
-                    var response = await this.GetAsync(url);
-                    summaryQueryObject = JObject.Parse(response);
-                }),
-                Task.Run(async () =>
-                {
-                    var url = urlBase
-                        + $"?$apply=filter("
-                            + $"Pipeline/PipelineId eq {filter.Pipeline}"
-                            + $" and StartedOn/Date ge {filter.Start:o}"
-                            + $" and Branch/BranchName eq '{filter.Branch}'"
-                        + ")/groupby((Test/TestSK, Test/FullyQualifiedTestName), aggregate("
-                            + $"TestRun/ResultFailCount with sum as FailedCount"
-                            + $", TestRun/StartedDate with max as MostRecentRun))"
-                        + "/filter(FailedCount gt 0)";
-                    var response = await this.GetAsync(url);
-                    detailedQueryObject = JObject.Parse(response);
-                }));
-
-            var summaryDataByTestSK = summaryQueryObject["value"]
-                .Select(token =>
-                (
-                    TestSK: token.Value<int>("TestSK"),
-                    RunCount: token.Value<int>("TotalCount"),
-                    FailCount: token.Value<int>("FailedCount"),
-                    Name: token.SelectToken("$.Test.TestName").Value<string>()
-                ))
-                .ToDictionary(
-                    summaryEntry => summaryEntry.TestSK,
-                    summaryEntry => (summaryEntry.RunCount, summaryEntry.FailCount, summaryEntry.Name));
-            var detailedDataByTestSK = detailedQueryObject["value"]
-                .Select(token =>
-                (
-                    TestSK: token.SelectToken("$.Test.TestSK").Value<int>(),
-                    FullName: token.SelectToken("$.Test.FullyQualifiedTestName").Value<string>(),
-                    MostRecent: token.SelectToken("$.MostRecentRun").Value<DateTime>()
-                ))
-                .ToDictionary(
-                    detailedEntry => detailedEntry.TestSK,
-                    detailedEntry => (detailedEntry.FullName, detailedEntry.MostRecent));
-
-            return summaryDataByTestSK.Select(pair =>
-                {
-                    var hasDetail = detailedDataByTestSK.TryGetValue(pair.Key, out var detailedData);
-
-                    return new ADOTestResultAnalyticsResult()
-                    {
-                        FailureCount = pair.Value.FailCount,
-                        RunCount = pair.Value.RunCount,
-                        Name = pair.Value.Name,
-                        FullName = hasDetail ? detailedData.FullName : string.Empty,
-                        LastRun = hasDetail ? detailedData.MostRecent : DateTime.MinValue
-                    };
-                })
-                .ToList();
         }
 
         public void Dispose()

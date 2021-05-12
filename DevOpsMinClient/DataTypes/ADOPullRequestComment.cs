@@ -1,9 +1,4 @@
 ﻿using DevOpsMinClient.DataTypes.Details;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace DevOpsMinClient.DataTypes
 {
@@ -11,7 +6,6 @@ namespace DevOpsMinClient.DataTypes
     {
         public int Id { get; set; }
         public ADOPerson Author { get; set; }
-
         public string Content { get; set; }
     }
 }

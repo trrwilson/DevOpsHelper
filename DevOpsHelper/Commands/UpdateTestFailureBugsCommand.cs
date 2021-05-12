@@ -220,6 +220,7 @@ namespace DevOpsHelper.Commands
                             + $"It had {bucket.Failures.Count} recent hits when generated.<br/>"
                             + $"<b>Test full name:</b> {detailedFailure.TestFullName}<br/>"
                             + $"<b>Test container:</b> {detailedFailure.ContainerName}<br/><br/>"
+                            + $"<b>Test run:</b> {detailedFailure.RunName}"
                             + $"<b>Error:</b><br/>"
                             + $"<code>{detailedFailure.ErrorMessage}</code><br/><br/>"
                             + $"<b>Stack:</b><br/>"

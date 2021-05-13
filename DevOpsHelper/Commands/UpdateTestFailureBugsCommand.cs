@@ -217,10 +217,11 @@ namespace DevOpsHelper.Commands
                             detailedFailure.BuildLabel,
                             trimmedBranchName),
                     ReproSteps = $"* This bug was automatically filed.<br/>"
-                            + $"It had {bucket.Failures.Count} recent hits when generated.<br/>"
+                            + $"It had {bucket.Failures.Count} recent hits (last 14 days) when generated.<br/>"
+                            + $"<i>Note:</i> The <code>IcM.IncidentCount</code> field (lower right) will show the latest 14-day rolling count.<br/>"
                             + $"<b>Test full name:</b> {detailedFailure.TestFullName}<br/>"
                             + $"<b>Test container:</b> {detailedFailure.ContainerName}<br/><br/>"
-                            + $"<b>Test run:</b> {detailedFailure.RunName}"
+                            + $"<b>Test run:</b> {detailedFailure.RunName}<br/><br/>"
                             + $"<b>Error:</b><br/>"
                             + $"<code>{detailedFailure.ErrorMessage}</code><br/><br/>"
                             + $"<b>Stack:</b><br/>"

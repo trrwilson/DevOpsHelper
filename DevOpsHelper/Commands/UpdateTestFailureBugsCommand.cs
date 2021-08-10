@@ -216,16 +216,7 @@ namespace DevOpsHelper.Commands
                             detailedFailure.ContainerName,
                             detailedFailure.BuildLabel,
                             trimmedBranchName),
-                    ReproSteps = $"* This bug was automatically filed.<br/>"
-                            + $"It had {bucket.Failures.Count} recent hits (last 14 days) when generated.<br/>"
-                            + $"<i>Note:</i> The <code>IcM.IncidentCount</code> field (lower right) will show the latest 14-day rolling count.<br/>"
-                            + $"<b>Test full name:</b> {detailedFailure.TestFullName}<br/>"
-                            + $"<b>Test container:</b> {detailedFailure.ContainerName}<br/><br/>"
-                            + $"<b>Test run:</b> {detailedFailure.RunName}<br/><br/>"
-                            + $"<b>Error:</b><br/>"
-                            + $"<code>{detailedFailure.ErrorMessage}</code><br/><br/>"
-                            + $"<b>Stack:</b><br/>"
-                            + $"<code>{detailedFailure.StackTrace}</code><br/>",
+                    ReproSteps = GetReproStepsAutogenHtml(bucket.Failures.Count, detailedFailure),
                 };
                 bucket.WorkItems.Add(newItem);
                 Console.WriteLine($"New bug: {newItem.Title.Truncate(95)}...");
@@ -327,7 +318,7 @@ namespace DevOpsHelper.Commands
                 ChangesWhenResolved(inQueryItem, failuresForItem);
                 ChangesWhenActive(inQueryItem, failuresForItem);
                 ChangesWhenUnassigned(inQueryItem, failuresForItem);
-                ChangesForConsistency(inQueryItem, failuresForItem);
+                await ChangesForConsistencyAsync(inQueryItem, failuresForItem);
 
                 var updateAttempted = await this.client.TryUpdateWorkItemAsync(inQueryItem);
                 countNoChanges += updateAttempted ? 0 : 1;
@@ -364,6 +355,7 @@ namespace DevOpsHelper.Commands
                 workItem.IncidentCount = 0;
                 if (workItem.State == "Active" || workItem.State == "New")
                 {
+                    workItem.ResolvedBy = null;
                     workItem.State = "Resolved";
                     workItem.History += $"[Automatic message] this bug is being automatically resolved because it no longer has"
                             + $" any observed failures in the last 14 days.";
@@ -436,7 +428,7 @@ namespace DevOpsHelper.Commands
             }
         }
 
-        private void ChangesForConsistency(ADOWorkItem workItem, List<ADOSimpleTestResultInfo> _)
+        private async Task ChangesForConsistencyAsync(ADOWorkItem workItem, List<ADOSimpleTestResultInfo> simpleFailures)
         {
             var currentRawTags = string.IsNullOrEmpty(workItem.Tags) ? "" : workItem.Tags;
             var currentTags = currentRawTags
@@ -449,6 +441,18 @@ namespace DevOpsHelper.Commands
                 .Where(tagToEnsure => !currentRawTags.ToLower().Contains(tagToEnsure.ToLower()));
             currentTags.AddRange(missingTags);
             workItem.Tags = string.Join("; ", currentTags);
+
+            var currentReproStepsVersion = GetReproStepsAutogenVersionFromHtml(workItem.ReproSteps);
+            if (simpleFailures.Any() && currentReproStepsVersion != reproStepsAutogenHtmlVersion)
+            {
+                Console.WriteLine($" Updating repro steps (v '{currentReproStepsVersion}' to v '{reproStepsAutogenHtmlVersion}')"
+                    + $" {workItem.Id}: {workItem.Title.Truncate(50),-50}...");
+                var detailedFailure = await this.client.GetDetailedTestResultInfoAsync(simpleFailures.First());
+                var newReproSteps = GetReproStepsAutogenHtml(simpleFailures.Count, detailedFailure);
+                workItem.ReproSteps = $"{newReproSteps}"
+                    + $"<br/>-- <i>(repro steps updated from the following)</i> --<br/><br/>"
+                    + $"{workItem.ReproSteps}";
+            }
         }
 
         private static bool WorkItemHasOnlyPreFixFailures(
@@ -460,6 +464,30 @@ namespace DevOpsHelper.Commands
             return (workItem.State == "New" || workItem.State == "Active")
                 && failuresForWorkItem.Any()
                 && failuresForWorkItem.All(failure => failure.When < workItem.DeploymentDate);
+        }
+
+        private static readonly string reproStepsAutogenHtmlVersion = "05132021.0";
+
+        private static string GetReproStepsAutogenVersionFromHtml(string reproStepsHtml)
+        {
+            var match = Regex.Match(reproStepsHtml, "AutogenReproStepsVersion:([^<]*)");
+            return match.Success ? match.Groups[1].ToString() : string.Empty;
+        }
+
+        private static string GetReproStepsAutogenHtml(int failureCount, ADODetailedTestResultInfo failure)
+        {
+            return
+                $"* This bug was automatically filed.<br/>"
+                + $"It had {failureCount} recent hits (last 14 days) when generated.<br/>"
+                + $"<i>Note:</i> The <code>IcM.IncidentCount</code> field (lower right) will show the latest 14-day rolling count.<br/>"
+                + $"<b>Test full name:</b> {failure.TestFullName}<br/>"
+                + $"<b>Test container:</b> {failure.ContainerName}<br/>"
+                + $"<b>Test run:</b> {failure.RunName}<br/><br/>"
+                + $"<b>Error:</b><br/>"
+                + $"<code>{failure.ErrorMessage}</code><br/><br/>"
+                + $"<b>Stack:</b><br/>"
+                + $"<code>{failure.StackTrace}</code><br/>"
+                + $"<p style=\"color:white;font-size=1px\">AutogenReproStepsVersion:{reproStepsAutogenHtmlVersion}</p><br/>";
         }
 
         private class FailureInfoCollection

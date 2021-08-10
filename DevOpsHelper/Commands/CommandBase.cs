@@ -39,7 +39,6 @@ namespace DevOpsHelper.Commands
                     => Console.WriteLine($"WARNING: error countered during '{label}':\n{error}");
             }
 
-
             return true;
         }
     }

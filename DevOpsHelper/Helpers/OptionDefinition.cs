@@ -157,6 +157,9 @@ namespace DevOpsHelper
                 "--failure-ignore-patterns",
                 "A semicolon-delimited list of regex patterns against which matching failures will be ignored.",
                 new List<string>());
+            public static OptionDefinition<int> IdleDayAutoCloseCount = new(
+                "--auto-close-after-days",
+                "The number of days after which a bug will be automatically resolved with no new hits.");
             public static OptionDefinition<string> CommonBranchPrefix { get; } = new(
                 "--branch-prefix",
                 "A common prefix, e.g. 'refs/heads/', to assume for all branch names if not present.",

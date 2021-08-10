@@ -34,6 +34,7 @@ namespace DevOpsHelper.Commands
             {
                 OptionDefinition.UpdateTestFailureBugs.FailureIgnorePatterns,
                 OptionDefinition.UpdateTestFailureBugs.CommonBranchPrefix,
+                OptionDefinition.UpdateTestFailureBugs.IdleDayAutoCloseCount,
             };
             command.AddOptions(requiredOptions, nonRequiredOptions);
 
@@ -49,6 +50,8 @@ namespace DevOpsHelper.Commands
         {
             if (!base.DoCommonSetup()) return -1;
 
+            Options.Command = this.baseCommand;
+
             var matchingResultInfo = await QueryFailureInfoAsync();
             var allFailureData = await QueryWorkItemFailureCollectionsAsync(matchingResultInfo);
 
@@ -62,19 +65,18 @@ namespace DevOpsHelper.Commands
 
         private async Task<IEnumerable<ADOSimpleTestResultInfo>> QueryFailureInfoAsync()
         {
-            var branch = OptionDefinition.UpdateTestFailureBugs.Branch.ValueFrom(this.baseCommand);
             var filter = new ADOTestQueryFilter()
             {
-                Pipeline = OptionDefinition.UpdateTestFailureBugs.PipelineId.ValueFrom(this.baseCommand),
-                Start = DateTime.Now - TimeSpan.FromDays(14),
+                Pipeline = Options.PipelineId,
+                Start = DateTime.Now - TimeSpan.FromDays(Options.AutoCloseIdleDays),
                 Outcome = "Failed",
-                Branch = branch,
+                Branch = Options.Branch,
             };
 
-            Console.Write($"Querying failures for {branch}... ");
+            Console.Write($"Querying failures for {Options.Branch}... ");
             var queriedFailures = await client.GetTestResultsAsync(filter);
             var fullNameToFailureGroups = queriedFailures.GroupBy(failure => failure.TestFullName);
-            var filters = OptionDefinition.UpdateTestFailureBugs.FailureIgnorePatterns.ValueFrom(this.baseCommand);
+            var filters = Options.FailureIgnorePatterns;
             var nameToFailureGroups = fullNameToFailureGroups
                 .Where(group => filters == null || filters.All(
                     filter => !Regex.IsMatch(group.Key, filter)));
@@ -189,21 +191,14 @@ namespace DevOpsHelper.Commands
 
         private async Task ReflectFailuresToWorkItemsAsync(List<FailureInfoCollection> allFailureInfo)
         {
-            var branchName = OptionDefinition.UpdateTestFailureBugs.Branch.ValueFrom(this.baseCommand);
-            var branchPrefix = OptionDefinition.UpdateTestFailureBugs.CommonBranchPrefix.ValueFrom(this.baseCommand, "");
-            var trimmedBranchName = branchName.StartsWith(branchPrefix) ? branchName[(branchPrefix.Length)..] : branchName;
-
-            var bugAreaPath = OptionDefinition.UpdateTestFailureBugs.BugAreaPath.ValueFrom(this.baseCommand);
-            var bugIterationPath = OptionDefinition.UpdateTestFailureBugs.BugIterationPath.ValueFrom(this.baseCommand);
-
-            var newBugHitThreshold = OptionDefinition.UpdateTestFailureBugs.
-                    AutoFileThreshold.ValueFrom(this.baseCommand, int.MaxValue);
+            var trimmedBranchName = Options.Branch.StartsWith(Options.CommonBranchPrefix)
+                ? Options.Branch[(Options.CommonBranchPrefix.Length)..]
+                : Options.Branch;
 
             Console.WriteLine($"Matching information between {allFailureInfo.Count} failure entries and work items...");
 
             var bucketsWithoutWorkItems = allFailureInfo.Where(bucket =>
-                bucket.Failures.Count >= newBugHitThreshold
-                && bucket.WorkItems.Count == 0);
+                bucket.Failures.Count >= Options.AutoFileThreshold && bucket.WorkItems.Count == 0);
             foreach (var bucket in bucketsWithoutWorkItems)
             {
                 var detailedFailure = await this.client.GetDetailedTestResultInfoAsync(bucket.Failures.First());
@@ -229,8 +224,8 @@ namespace DevOpsHelper.Commands
 
                 static string GetEnsuredPrefix(string input, string prefix)
                     => !string.IsNullOrEmpty(input) && input.StartsWith(prefix) ? input : prefix;
-                newestItem.AreaPath = GetEnsuredPrefix(newestItem.AreaPath, bugAreaPath);
-                newestItem.IterationPath = GetEnsuredPrefix(newestItem.IterationPath, bugIterationPath);
+                newestItem.AreaPath = GetEnsuredPrefix(newestItem.AreaPath, Options.BugAreaPath);
+                newestItem.IterationPath = GetEnsuredPrefix(newestItem.IterationPath, Options.BugIterationPath);
                 newestItem.IncidentCount = bucket.Failures.Count;
                 newestItem.LastHitDate = bucket.Failures
                     .Select(failure => failure.When)
@@ -299,8 +294,7 @@ namespace DevOpsHelper.Commands
         {
             Console.Write($"Querying all existing work items... ");
 
-            var inQueryItems = await client.GetWorkItemsFromQueryAsync(
-                OptionDefinition.UpdateTestFailureBugs.QueryId.ValueFrom(this.baseCommand));
+            var inQueryItems = await client.GetWorkItemsFromQueryAsync(Options.QueryId);
 
             Console.WriteLine($"checking each of {inQueryItems.Count} items from the query...");
 
@@ -358,7 +352,7 @@ namespace DevOpsHelper.Commands
                     workItem.ResolvedBy = null;
                     workItem.State = "Resolved";
                     workItem.History += $"[Automatic message] this bug is being automatically resolved because it no longer has"
-                            + $" any observed failures in the last 14 days.";
+                            + $" any observed failures in the last {Options.AutoCloseIdleDays} days.";
                 }
             }
         }
@@ -435,7 +429,7 @@ namespace DevOpsHelper.Commands
                 .Split(';')
                 .Select(tag => tag.Trim())
                 .ToList();
-            var tagsToEnsure = OptionDefinition.UpdateTestFailureBugs.BugTag.ValueFrom(this.baseCommand)
+            var tagsToEnsure = Options.BugTag
                 .Split(';');
             var missingTags = tagsToEnsure
                 .Where(tagToEnsure => !currentRawTags.ToLower().Contains(tagToEnsure.ToLower()));
@@ -478,8 +472,8 @@ namespace DevOpsHelper.Commands
         {
             return
                 $"* This bug was automatically filed.<br/>"
-                + $"It had {failureCount} recent hits (last 14 days) when generated.<br/>"
-                + $"<i>Note:</i> The <code>IcM.IncidentCount</code> field (lower right) will show the latest 14-day rolling count.<br/>"
+                + $"It had {failureCount} recent hits (last {Options.AutoCloseIdleDays} days) when generated.<br/>"
+                + $"<i>Note:</i> The <code>IcM.IncidentCount</code> field (lower right) will show the latest {Options.AutoCloseIdleDays}-day rolling count.<br/>"
                 + $"<b>Test full name:</b> {failure.TestFullName}<br/>"
                 + $"<b>Test container:</b> {failure.ContainerName}<br/>"
                 + $"<b>Test run:</b> {failure.RunName}<br/><br/>"
@@ -497,5 +491,51 @@ namespace DevOpsHelper.Commands
             public List<ADOSimpleTestResultInfo> Failures;
             public List<ADOWorkItem> WorkItems;
         }
+
+        private class Options
+        {
+            public static CommandLineApplication Command;
+
+            private static Lazy<string> LazyBranch = new(() =>
+            OptionDefinition.UpdateTestFailureBugs.Branch.ValueFrom(Options.Command));
+            public static string Branch { get => LazyBranch.Value; }
+
+            private static Lazy<int> LazyPipelineId = new(() =>
+            OptionDefinition.UpdateTestFailureBugs.PipelineId.ValueFrom(Options.Command));
+            public static int PipelineId { get => LazyPipelineId.Value; }
+
+            private static Lazy<List<string>> LazyFailureIgnorePatterns = new(() =>
+            OptionDefinition.UpdateTestFailureBugs.FailureIgnorePatterns.ValueFrom(Options.Command));
+            public static List<string> FailureIgnorePatterns { get => LazyFailureIgnorePatterns.Value; }
+
+            private static Lazy<string> LazyCommonBranchPrefix = new(() =>
+            OptionDefinition.UpdateTestFailureBugs.CommonBranchPrefix.ValueFrom(Options.Command, ""));
+            public static string CommonBranchPrefix { get => LazyCommonBranchPrefix.Value; }
+
+            private static Lazy<string> LazyBugAreaPath = new(() =>
+            OptionDefinition.UpdateTestFailureBugs.BugAreaPath.ValueFrom(Options.Command, ""));
+            public static string BugAreaPath { get => LazyBugAreaPath.Value; }
+
+            private static Lazy<string> LazyBugIterationPath = new(() =>
+                OptionDefinition.UpdateTestFailureBugs.BugAreaPath.ValueFrom(Options.Command, ""));
+            public static string BugIterationPath { get => LazyBugIterationPath.Value; }
+
+            private static Lazy<int> LazyAutoFileThreshold = new(() =>
+            OptionDefinition.UpdateTestFailureBugs.AutoFileThreshold.ValueFrom(Options.Command, int.MaxValue));
+            public static int AutoFileThreshold { get => LazyAutoFileThreshold.Value; }
+
+            private static Lazy<Guid> LazyQueryId = new(() =>
+            OptionDefinition.UpdateTestFailureBugs.QueryId.ValueFrom(Options.Command));
+            public static Guid QueryId { get => LazyQueryId.Value; }
+
+            private static Lazy<string> LazyBugTag = new(() =>
+            OptionDefinition.UpdateTestFailureBugs.BugTag.ValueFrom(Options.Command));
+            public static string BugTag { get => LazyBugTag.Value; }
+
+            private static Lazy<int> LazyAutoCloseIdleDays = new(() =>
+                OptionDefinition.UpdateTestFailureBugs.IdleDayAutoCloseCount.ValueFrom(Options.Command, 14));
+            public static int AutoCloseIdleDays { get => LazyAutoCloseIdleDays.Value; }
+        }
+
     }
 }

@@ -204,7 +204,7 @@ namespace DevOpsHelper.Commands
                 Commit = (await client.GetCommitsAsync(new ADOCommitFilter()
                 {
                     RepositoryId = pr.Repository.Id,
-                    Id = firstCommonCommit,
+                    Id = pr.LastSourceCommitId,
                 })).FirstOrDefault(),
             };
 

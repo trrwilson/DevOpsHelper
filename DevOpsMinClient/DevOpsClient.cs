@@ -532,7 +532,29 @@ namespace DevOpsMinClient
         {
             var url = $"{this.baseUrl}/_apis/test/Runs/{simpleInfo.RunId}/Results/{simpleInfo.RunResultId}";
             var response = await this.GetAsync(url);
-            return JsonConvert.DeserializeObject<ADODetailedTestResultInfo>(response);
+            var result = JsonConvert.DeserializeObject<ADODetailedTestResultInfo>(response);
+            if (string.IsNullOrEmpty(result.BuildLabel))
+            {
+                this.ErrorReceived?.Invoke(
+                    "DetailedTestResult",
+                    $"Couldn't find detailed test result info for run result ID {simpleInfo.RunResultId}.");
+                return null;
+            }
+            return result;
+        }
+
+        public async Task<ADODetailedTestResultInfo> GetDetailedTestResultInfoAsync(
+            List<ADOSimpleTestResultInfo> orderedSimpleInfos)
+        {
+            for (int i = orderedSimpleInfos.Count - 1; i >= 0; i--)
+            {
+                var detailed = await GetDetailedTestResultInfoAsync(orderedSimpleInfos[i]);
+                if (!string.IsNullOrEmpty(detailed.BuildLabel))
+                {
+                    return detailed;
+                }
+            }
+            return null;
         }
 
         public async Task<bool> TryUpdateWorkItemAsync(ADOWorkItem workItem)

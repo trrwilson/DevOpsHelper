@@ -43,20 +43,27 @@ namespace DevOpsHelper
             this.Description = description;
         }
 
-        public string ValueFrom(CommandLineApplication command, string defaultValue = null, bool allowFileDefaults = true)
+        public string ValueFrom(CommandLineApplication command, string defaultValue = null)
         {
             var option = command.FindOption(this);
-            return
-                option.HasValue()
-                    ? option.Value() :
-                defaultValue ?? 
-                (allowFileDefaults ?
-                    OptionDefaults.TryGetValue($"-{option.ShortName}", out var fileShortDefault)
-                        ? fileShortDefault :
-                    OptionDefaults.TryGetValue($"--{option.LongName}", out var fileLongDefault)
-                        ? fileLongDefault :
-                    null :
-                null);
+            if (option.HasValue())
+            {
+                return option.Value();
+            }
+            else if (Preferences.AllowFileDefaults 
+                && OptionDefaults.TryGetValue($"--{option.LongName}", out var fileLongDefault))
+            {
+                return fileLongDefault;
+            }
+            else if (Preferences.AllowFileDefaults 
+                && OptionDefaults.TryGetValue($"-{option.ShortName}", out var fileShortDefault))
+            {
+                return fileShortDefault;
+            }
+            else
+            {
+                return defaultValue;
+            }
         }
 
         public static OptionDefinition Url { get; } = new OptionDefinition(
@@ -65,6 +72,11 @@ namespace DevOpsHelper
         public static OptionDefinition AccessToken { get; } = new OptionDefinition(
             "-t|--pat",
             "The personal access token to use when connecting.");
+
+        public static class Preferences
+        {
+            public static bool AllowFileDefaults { get; set; } = true;
+        }
 
         public static class GetArtifacts
         {
@@ -187,7 +199,7 @@ namespace DevOpsHelper
             this.optionDefault = standardDefault;
         }
 
-        public T ValueFrom(CommandLineApplication command, T defaultValue = default, bool allowFileDefaults = true)
+        public T ValueFrom(CommandLineApplication command, T defaultValue = default)
         {
             var programmaticDefaultToUse = EqualityComparer<T>.Default.Equals(defaultValue, default(T))
                 ? this.optionDefault
@@ -195,7 +207,7 @@ namespace DevOpsHelper
             var textDefault = EqualityComparer<T>.Default.Equals(programmaticDefaultToUse, default(T))
                 ? string.Empty
                 : $"{programmaticDefaultToUse}";
-            var textValue = base.ValueFrom(command, null, allowFileDefaults);
+            var textValue = base.ValueFrom(command, null);
 
             return string.IsNullOrEmpty(textValue)
                 ? programmaticDefaultToUse

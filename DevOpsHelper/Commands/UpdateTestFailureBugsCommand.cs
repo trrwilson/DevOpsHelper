@@ -199,22 +199,34 @@ namespace DevOpsHelper.Commands
 
             var bucketsWithoutWorkItems = allFailureInfo.Where(bucket =>
                 bucket.Failures.Count >= Options.AutoFileThreshold && bucket.WorkItems.Count == 0);
+
+            var newDetailedFailures = await Task.WhenAll(allFailureInfo
+                .Where(bucket =>
+                    bucket.Failures.Count >= Options.AutoFileThreshold
+                    && bucket.WorkItems.Count == 0)
+                .Select(bucket =>
+                    this.client.GetDetailedTestResultInfoAsync(bucket.Failures)));
+
             foreach (var bucket in bucketsWithoutWorkItems)
             {
-                var detailedFailure = await this.client.GetDetailedTestResultInfoAsync(bucket.Failures.First());
+                var detailedFailure = await this.client.GetDetailedTestResultInfoAsync(bucket.Failures);
 
-                var newItem = new ADOWorkItem()
+                if (detailedFailure != null)
                 {
-                    WorkItemType = "Bug",
-                    Title = string.Format("* {0} [{1}] failed in {2} ({3})",
-                            detailedFailure.TestName.Truncate(100),
-                            detailedFailure.ContainerName,
-                            detailedFailure.BuildLabel,
-                            trimmedBranchName),
-                    ReproSteps = GetReproStepsAutogenHtml(bucket.Failures.Count, detailedFailure),
-                };
-                bucket.WorkItems.Add(newItem);
-                Console.WriteLine($"New bug: {newItem.Title.Truncate(95)}...");
+
+                    var newItem = new ADOWorkItem()
+                    {
+                        WorkItemType = "Bug",
+                        Title = string.Format("* {0} [{1}] failed in {2} ({3})",
+                                detailedFailure.TestName.Truncate(100),
+                                detailedFailure.ContainerName,
+                                detailedFailure.BuildLabel,
+                                trimmedBranchName),
+                        ReproSteps = GetReproStepsAutogenHtml(bucket.Failures.Count, detailedFailure),
+                    };
+                    bucket.WorkItems.Add(newItem);
+                    Console.WriteLine($"New bug: {newItem.Title.Truncate(95)}...");
+                }
             }
 
             foreach (var bucket in allFailureInfo.Where(bucket => bucket.WorkItems.Any()))
@@ -441,11 +453,14 @@ namespace DevOpsHelper.Commands
             {
                 Console.WriteLine($" Updating repro steps (v '{currentReproStepsVersion}' to v '{reproStepsAutogenHtmlVersion}')"
                     + $" {workItem.Id}: {workItem.Title.Truncate(50),-50}...");
-                var detailedFailure = await this.client.GetDetailedTestResultInfoAsync(simpleFailures.First());
-                var newReproSteps = GetReproStepsAutogenHtml(simpleFailures.Count, detailedFailure);
-                workItem.ReproSteps = $"{newReproSteps}"
-                    + $"<br/>-- <i>(repro steps updated from the following)</i> --<br/><br/>"
-                    + $"{workItem.ReproSteps}";
+                var detailedFailure = await this.client.GetDetailedTestResultInfoAsync(simpleFailures);
+                if (detailedFailure != null)
+                {
+                    var newReproSteps = GetReproStepsAutogenHtml(simpleFailures.Count, detailedFailure);
+                    workItem.ReproSteps = $"{newReproSteps}"
+                        + $"<br/>-- <i>(repro steps updated from the following)</i> --<br/><br/>"
+                        + $"{workItem.ReproSteps}";
+                }
             }
         }
 
@@ -465,7 +480,7 @@ namespace DevOpsHelper.Commands
         private static string GetReproStepsAutogenVersionFromHtml(string reproStepsHtml)
         {
             var match = Regex.Match(reproStepsHtml, "AutogenReproStepsVersion:([^<]*)");
-            return match.Success ? match.Groups[1].ToString() : string.Empty;
+            return match.Success ? match.Groups[1].ToString().Trim() : string.Empty;
         }
 
         private static string GetReproStepsAutogenHtml(int failureCount, ADODetailedTestResultInfo failure)
@@ -509,15 +524,15 @@ namespace DevOpsHelper.Commands
             public static List<string> FailureIgnorePatterns { get => LazyFailureIgnorePatterns.Value; }
 
             private static Lazy<string> LazyCommonBranchPrefix = new(() =>
-            OptionDefinition.UpdateTestFailureBugs.CommonBranchPrefix.ValueFrom(Options.Command, ""));
+            OptionDefinition.UpdateTestFailureBugs.CommonBranchPrefix.ValueFrom(Options.Command));
             public static string CommonBranchPrefix { get => LazyCommonBranchPrefix.Value; }
 
             private static Lazy<string> LazyBugAreaPath = new(() =>
-            OptionDefinition.UpdateTestFailureBugs.BugAreaPath.ValueFrom(Options.Command, ""));
+                OptionDefinition.UpdateTestFailureBugs.BugAreaPath.ValueFrom(Options.Command));
             public static string BugAreaPath { get => LazyBugAreaPath.Value; }
 
             private static Lazy<string> LazyBugIterationPath = new(() =>
-                OptionDefinition.UpdateTestFailureBugs.BugAreaPath.ValueFrom(Options.Command, ""));
+                OptionDefinition.UpdateTestFailureBugs.BugIterationPath.ValueFrom(Options.Command));
             public static string BugIterationPath { get => LazyBugIterationPath.Value; }
 
             private static Lazy<int> LazyAutoFileThreshold = new(() =>

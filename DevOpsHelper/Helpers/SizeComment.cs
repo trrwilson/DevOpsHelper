@@ -21,7 +21,10 @@ namespace DevOpsHelper.Helpers
 
         public static SizeComment Parse(string comment)
         {
-            if (!comment.Contains("Carbon Artifact Size Analysis (CASA)")) return null;
+            if (string.IsNullOrEmpty(comment) || !comment.Contains("Carbon Artifact Size Analysis (CASA)"))
+            {
+                return null;
+            }
 
             var result = new SizeComment()
             {

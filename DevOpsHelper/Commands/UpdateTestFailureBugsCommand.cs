@@ -7,6 +7,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
@@ -199,13 +200,6 @@ namespace DevOpsHelper.Commands
 
             var bucketsWithoutWorkItems = allFailureInfo.Where(bucket =>
                 bucket.Failures.Count >= Options.AutoFileThreshold && bucket.WorkItems.Count == 0);
-
-            var newDetailedFailures = await Task.WhenAll(allFailureInfo
-                .Where(bucket =>
-                    bucket.Failures.Count >= Options.AutoFileThreshold
-                    && bucket.WorkItems.Count == 0)
-                .Select(bucket =>
-                    this.client.GetDetailedTestResultInfoAsync(bucket.Failures)));
 
             foreach (var bucket in bucketsWithoutWorkItems)
             {
@@ -457,9 +451,7 @@ namespace DevOpsHelper.Commands
                 if (detailedFailure != null)
                 {
                     var newReproSteps = GetReproStepsAutogenHtml(simpleFailures.Count, detailedFailure);
-                    workItem.ReproSteps = $"{newReproSteps}"
-                        + $"<br/>-- <i>(repro steps updated from the following)</i> --<br/><br/>"
-                        + $"{workItem.ReproSteps}";
+                    workItem.ReproSteps = $"{newReproSteps}";
                 }
             }
         }
@@ -475,7 +467,7 @@ namespace DevOpsHelper.Commands
                 && failuresForWorkItem.All(failure => failure.When < workItem.DeploymentDate);
         }
 
-        private static readonly string reproStepsAutogenHtmlVersion = "05132021.0";
+        private static readonly string reproStepsAutogenHtmlVersion = "02022022.2";
 
         private static string GetReproStepsAutogenVersionFromHtml(string reproStepsHtml)
         {
@@ -485,18 +477,43 @@ namespace DevOpsHelper.Commands
 
         private static string GetReproStepsAutogenHtml(int failureCount, ADODetailedTestResultInfo failure)
         {
-            return
-                $"* This bug was automatically filed.<br/>"
+            var builder = new StringBuilder().Append(
+                $"<i>* This bug was automatically filed.</i><br/>"
                 + $"It had {failureCount} recent hits (last {Options.AutoCloseIdleDays} days) when generated.<br/>"
                 + $"<i>Note:</i> The <code>IcM.IncidentCount</code> field (lower right) will show the latest {Options.AutoCloseIdleDays}-day rolling count.<br/>"
                 + $"<b>Test full name:</b> {failure.TestFullName}<br/>"
                 + $"<b>Test container:</b> {failure.ContainerName}<br/>"
-                + $"<b>Test run:</b> {failure.RunName}<br/><br/>"
-                + $"<b>Error:</b><br/>"
-                + $"<code>{failure.ErrorMessage}</code><br/><br/>"
-                + $"<b>Stack:</b><br/>"
-                + $"<code>{failure.StackTrace}</code><br/>"
-                + $"<p style=\"color:white;font-size=1px\">AutogenReproStepsVersion:{reproStepsAutogenHtmlVersion}</p><br/>";
+                + $"<b>Test run:</b> {failure.RunName}<br/><br/>");
+
+            // If this test had data rows (expandable sub results, like test case sections), dump the failed rows for
+            // usable details; otherwise, use the top level
+            var failedSubResults = failure.SubResults.Where(subresult => subresult.Outcome != "Passed");
+            if (failedSubResults.Any())
+            {
+                foreach (var failedSubResult in failedSubResults)
+                {
+                    builder.Append(
+                        $"<b>Row</b>: {failedSubResult.Name}</br>"
+                        + $"<b>Error:</b></br>"
+                        + $"<code>{failedSubResult.ErrorMessage}</code></br></br>"
+                        + $"<b>Stack:</b></br>"
+                        + $"<code>{failedSubResult.StackTrace}</code></br><hr/>");
+                }
+            }
+            else
+            {
+                builder.Append(
+                    $"<b>Error:</b><br/>"
+                    + $"<code>{failure.ErrorMessage}</code><br/><br/>"
+                    + $"<b>Stack:</b><br/>"
+                    + $"<code>{failure.StackTrace}</code><br/>");
+            }
+
+            // Sneaky version watermark for future update checks
+            builder.Append(
+                $"<p style=\"color:white;font-size=1px\">AutogenReproStepsVersion:{reproStepsAutogenHtmlVersion}</p><br/>");
+
+            return builder.ToString();
         }
 
         private class FailureInfoCollection

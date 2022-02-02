@@ -1,6 +1,7 @@
 ﻿using DevOpsMinClient.DataTypes.Details;
 using Newtonsoft.Json;
 using System;
+using System.Collections.Generic;
 
 namespace DevOpsMinClient.DataTypes
 {
@@ -33,6 +34,8 @@ namespace DevOpsMinClient.DataTypes
         public string ErrorMessage { get; set; }
         [ADOBindableToken("$.stackTrace")]
         public string StackTrace { get; set; }
+        [ADOBindableToken("$.subResults")]
+        public List<ADODetailedTestSubResultInfo> SubResults { get; set; }
 
         public string GetTestUrl() => $"vstfs:///TestManagement/TcmTest/tcm.{this.TestId}";
         public string GetResultUrl() => $"vstfs:///TestManagement/TcmResult/{this.RunId}.{this.RunResultId}";

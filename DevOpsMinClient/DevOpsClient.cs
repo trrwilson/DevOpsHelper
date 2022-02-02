@@ -530,7 +530,7 @@ namespace DevOpsMinClient
 
         public async Task<ADODetailedTestResultInfo> GetDetailedTestResultInfoAsync(ADOSimpleTestResultInfo simpleInfo)
         {
-            var url = $"{this.baseUrl}/_apis/test/Runs/{simpleInfo.RunId}/Results/{simpleInfo.RunResultId}";
+            var url = $"{this.baseUrl}/_apis/test/Runs/{simpleInfo.RunId}/Results/{simpleInfo.RunResultId}?detailsToInclude=SubResults";
             var response = await this.GetAsync(url);
             var result = JsonConvert.DeserializeObject<ADODetailedTestResultInfo>(response);
             if (string.IsNullOrEmpty(result.BuildLabel))

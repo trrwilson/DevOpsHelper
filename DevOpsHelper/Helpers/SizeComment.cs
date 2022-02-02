@@ -16,7 +16,13 @@ namespace DevOpsHelper.Helpers
 
         public bool IsSameAs(SizeComment other)
         {
-            return other != null && this.Version == other.Version && this.Commit.Id?.Substring(0, 7) == other.Commit.Id?.Substring(0, 7);
+            // Very aggressive null checking as this is prone to some strange state depending on
+            // publishing timing with the PRs
+            return (!string.IsNullOrEmpty(this.Version)
+                && !string.IsNullOrEmpty(other?.Version)
+                && !string.IsNullOrEmpty(this.Commit?.Id)
+                && !string.IsNullOrEmpty(other.Commit?.Id)
+                && this.Commit.Id[..7] == other.Commit.Id[..7]);
         }
 
         public static SizeComment Parse(string comment)
@@ -76,7 +82,7 @@ namespace DevOpsHelper.Helpers
             }
             else
             {
-                comment += $"Hello! Your PR has artifacts that appear to match one of these reference builds with merge basis {this.Commit.Id.Substring(0, 7)}:\n";
+                comment += $"Hello! Your PR has artifacts that appear to match one of these reference builds:\n";
                 comment += $"- [Build {this.Build.Id}]({this.ProjectUrl}/_build/results?buildId={this.Build.Id}&view=results) ({this.Build.SourceBranch} @{this.Build.HeadCommit.Substring(0, 7)})\n";
 
                 comment += "\nHere's a comparison of sizes:\n";

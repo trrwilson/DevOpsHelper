@@ -252,7 +252,7 @@ namespace DevOpsMinClient
         protected virtual async Task<string> GetAsync(string url)
         {
             var httpResult = await this.baseClient.GetAsync(url);
-            await this.CheckResponseAsync(httpResult, "get");
+            await this.CheckResponseAsync(url, httpResult, "get");
             var textResult = await httpResult.Content.ReadAsStringAsync();
             return textResult;
         }
@@ -265,7 +265,7 @@ namespace DevOpsMinClient
             var response = await this.baseClient.PostAsync(
                 url,
                 payload != null ? new StringContent(payload, Encoding.UTF8, contentType) : null);
-            await this.CheckResponseAsync(response, "post");
+            await this.CheckResponseAsync(url, response, "post");
             var responseText = await response.Content.ReadAsStringAsync();
             return responseText;
         }
@@ -284,7 +284,7 @@ namespace DevOpsMinClient
             var response = await this.baseClient.PatchAsync(
                 url,
                 new StringContent(payload, Encoding.UTF8, contentType));
-            await this.CheckResponseAsync(response, "patch");
+            await this.CheckResponseAsync(url, response, "patch");
             var responseText = await response.Content.ReadAsStringAsync();
             return responseText;
         }
@@ -628,12 +628,13 @@ namespace DevOpsMinClient
         public string GetAnalyticsUrl()
             => this.baseUrl.Insert(this.baseUrl.IndexOf('.') + 1, "analytics.");
 
-        private async Task CheckResponseAsync(HttpResponseMessage response, string label)
+        private async Task CheckResponseAsync(string requestUrl, HttpResponseMessage response, string label)
         {
             if (response.StatusCode != System.Net.HttpStatusCode.OK
                 && response.StatusCode != System.Net.HttpStatusCode.NotFound)
             {
-                this.ErrorReceived?.Invoke(label, await response.Content.ReadAsStringAsync());
+                string message = $"\nRequest URL:\n{requestUrl}\nResponse:\n{await response.Content.ReadAsStringAsync()}";
+                this.ErrorReceived?.Invoke(label, message);
             }
         }
 

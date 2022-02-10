@@ -1,8 +1,10 @@
 ﻿using Microsoft.Extensions.CommandLineUtils;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Text;
 
 namespace DevOpsHelper
@@ -17,9 +19,19 @@ namespace DevOpsHelper
 
         static OptionDefinition()
         {
+            var assembly = Assembly.GetExecutingAssembly();
+            var assemblyPath = Path.GetDirectoryName(assembly.Location);
+
+            var optionsFilePath = $"{assemblyPath}\\optiondefaults.config";
+
             if (File.Exists("optiondefaults.config"))
             {
-                using (var fileStream = File.OpenRead("optiondefaults.config"))
+                optionsFilePath = "optiondefaults.config";
+            }
+
+            if (File.Exists(optionsFilePath))
+            {
+                using (var fileStream = File.OpenRead(optionsFilePath))
                 using (var fileReader = new StreamReader(fileStream))
                 {
                     while (!fileReader.EndOfStream)

@@ -22,16 +22,15 @@ namespace DevOpsHelper
             var assembly = Assembly.GetExecutingAssembly();
             var assemblyPath = Path.GetDirectoryName(assembly.Location);
 
-            var optionsFilePath = $"{assemblyPath}\\optiondefaults.config";
+            var assemblyOptionsFilePath = Path.Combine(assemblyPath, "optiondefaults.config");
+            var workingDirectoryOptionsFilePath = Path.Combine(Environment.CurrentDirectory, "optiondefaults.config");
 
-            if (File.Exists("optiondefaults.config"))
-            {
-                optionsFilePath = "optiondefaults.config";
-            }
+            var pathToUse = File.Exists(workingDirectoryOptionsFilePath) ? workingDirectoryOptionsFilePath : assemblyOptionsFilePath;
 
-            if (File.Exists(optionsFilePath))
+            if (File.Exists(pathToUse))
             {
-                using (var fileStream = File.OpenRead(optionsFilePath))
+                Console.WriteLine($"Loading default options from {pathToUse}");
+                using (var fileStream = File.OpenRead(pathToUse))
                 using (var fileReader = new StreamReader(fileStream))
                 {
                     while (!fileReader.EndOfStream)

@@ -1,5 +1,6 @@
 ﻿using DevOpsMinClient.DataTypes;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 namespace DevOpsHelper.Helpers
 {
@@ -20,9 +21,7 @@ namespace DevOpsHelper.Helpers
             // publishing timing with the PRs
             return (!string.IsNullOrEmpty(this.Version)
                 && !string.IsNullOrEmpty(other?.Version)
-                && !string.IsNullOrEmpty(this.Commit?.Id)
-                && !string.IsNullOrEmpty(other.Commit?.Id)
-                && this.Commit.Id[..7] == other.Commit.Id[..7]);
+                && this.GetBestCommitId()[..7] == this.GetBestCommitId()[..7]);
         }
 
         public static SizeComment Parse(string comment)
@@ -46,13 +45,11 @@ namespace DevOpsHelper.Helpers
                 result.Version = comment[(headerVersionStart + 2)..headerVersionEnd].Trim();
             }
 
+            var buildMatch = Regex.Match(comment, "\\((.*) @(.*)\\)");
 
-            int basisStart = comment.IndexOf("merge basis");
-            var basisEnd = basisStart >= 0 ? comment.IndexOf(":\n", basisStart) : -1;
-
-            if (basisStart >= 0 && basisEnd >= 0 && basisEnd > basisStart)
+            if (buildMatch.Success)
             {
-                result.Commit.Id = comment[(basisStart + 11)..basisEnd].Trim();
+                result.Commit.Id = buildMatch.Groups[2].Value;
             }
 
             return result;
@@ -83,8 +80,7 @@ namespace DevOpsHelper.Helpers
             else
             {
                 comment += $"Hello! Your PR has artifacts that appear to match one of these reference builds:\n";
-                comment += $"- [Build {this.Build.Id}]({this.ProjectUrl}/_build/results?buildId={this.Build.Id}&view=results) ({this.Build.SourceBranch} @{this.Build.HeadCommit.Substring(0, 7)})\n";
-
+                comment += GetReferenceBuildLine();
                 comment += "\nHere's a comparison of sizes:\n";
                 comment += table;
             }
@@ -94,5 +90,25 @@ namespace DevOpsHelper.Helpers
 
             return comment;
         }
+
+        private string GetReferenceBuildLine()
+        {
+            string result = $"- [Build {this.Build.Id}]({this.ProjectUrl}/_build/results?buildId={this.Build.Id}&view=results) ";
+            result += $"({this.Build.SourceBranch} @{this.Build.HeadCommit.Substring(0, 7)})\n";
+            return result;
+        }
+
+        private string GetBestCommitId()
+        {
+            if (this.Build != null)
+            {
+                return this.Build.HeadCommit;
+            }
+            else
+            {
+                return this.Commit.Id;
+            }
+        }
+
     }
 }

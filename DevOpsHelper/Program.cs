@@ -18,7 +18,7 @@ namespace DevOpsHelper
             app.Command("CheckPRSize", CheckPRSizeCommand.Init);
             app.Command("UpdateTestFailureBugs", UpdateTestFailureBugsCommand.Init);
             app.Command("PrintBranchSizes", PrintBranchSizesCommand.Init);
-            app.Command("FindFailures", FindFailuresCommand.Init);
+            app.Command("PrintBuildGanttChart", PrintBuildGanttChart.Init);
             app.OnExecute(() =>
             {
                 app.ShowHelp();

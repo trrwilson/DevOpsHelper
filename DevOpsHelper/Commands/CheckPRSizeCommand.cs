@@ -180,6 +180,7 @@ namespace DevOpsHelper.Commands
             }
             else if (!existingComment.IsSameAs(comment))
             {
+                Console.WriteLine($"  --> Updating PR size comment...");
                 await client.UpdatePullRequestCommentAsync(
                     pr,
                     existingThread,

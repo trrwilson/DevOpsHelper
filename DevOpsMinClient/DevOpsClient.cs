@@ -234,6 +234,21 @@ namespace DevOpsMinClient
             var resultDetail = JObject.Parse(response);
             return resultDetail;
         }
+
+        public async Task<List<ADOBuildTimelineRecord>> GetBuildTimelineRecordsAsync(int buildId)
+        {
+            var url = $"{this.baseUrl}/_apis/build/builds/{buildId}/timeline";
+
+            var response = await this.GetAsync(url);
+            var timelineJson = JObject.Parse(response);
+
+            var result = timelineJson["records"]
+                .Select(item => item.ToObject<ADOBuildTimelineRecord>())
+                .ToList();
+
+            return result;
+        }
+
         protected virtual async Task<string> GetAsync(string url)
         {
             var httpResult = await this.baseClient.GetAsync(url);

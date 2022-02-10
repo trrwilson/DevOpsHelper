@@ -19,13 +19,13 @@ namespace DevOpsMinClient.DataTypes.Details
                 if (bindableAttribute != null)
                 {
                     var matchingToken = jsonToken.SelectToken(bindableAttribute.Path);
-                    if (matchingToken != null)
+                    if (matchingToken != null && matchingToken.Type != JTokenType.Null)
                     {
                         var valueInToken = matchingToken.Type == JTokenType.Object
                             ? JsonConvert.DeserializeObject(matchingToken.ToString(), property.PropertyType)
                             : matchingToken.ToObject(property.PropertyType);
                         bindableAttribute.ValueType = property.PropertyType;
-                        property.SetValue(result, valueInToken);                            
+                        property.SetValue(result, valueInToken);
                     }
                 }
             }

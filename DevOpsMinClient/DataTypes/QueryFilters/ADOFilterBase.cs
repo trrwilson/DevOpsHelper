@@ -20,7 +20,7 @@ namespace DevOpsMinClient.DataTypes.QueryFilters
         {
             return valueObject switch
             {
-                DateTime dateTimeValue => $"{dateTimeValue:o}",
+                DateTime dateTimeValue => $"{dateTimeValue:o}".Replace("+00:00", "-00:00"),
                 _ => valueObject.ToString(),
             };
         }

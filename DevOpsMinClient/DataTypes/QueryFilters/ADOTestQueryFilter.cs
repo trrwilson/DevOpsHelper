@@ -36,7 +36,7 @@ namespace DevOpsMinClient.DataTypes.QueryFilters
             void AppendIntIfPresent(string key, int value, string op = "eq")
                 => AppendIfPresent(key, value == 0 ? "" : $"{value}", op);
             void AppendDateIfPresent(string key, DateTime value, string op = "eq")
-                => AppendIfPresent(key, value == DateTime.MinValue ? "" : $"{value:o}", op, false);
+                => AppendIfPresent(key, value == DateTime.MinValue ? "" : $"{value:o}".Replace("+00:00", "-00:00"), op, false);
 
             AppendIntIfPresent("PipelineRun/PipelineRunId", this.BuildId);
             AppendIntIfPresent("Pipeline/PipelineId", this.Pipeline);

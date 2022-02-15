@@ -357,7 +357,7 @@ namespace DevOpsMinClient
             var response = await this.baseClient.PostAsync(
                 url,
                 new StringContent(requestPayload, Encoding.UTF8, "application/json"));
-            var responseText = await response.Content.ReadAsStringAsync();
+            await this.CheckResponseAsync(url, response, "post (PR comment)");
         }
 
         /// <summary>

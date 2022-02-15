@@ -173,6 +173,7 @@ namespace DevOpsHelper.Commands
 
             if (existingComment is null)
             {
+                Console.WriteLine($"  --> Creating new PR size comment...");
                 await client.PostPRCommentAsync(
                     pr,
                     comment.ToString(),
@@ -186,6 +187,10 @@ namespace DevOpsHelper.Commands
                     existingThread,
                     existingThread.Comments.First(),
                     comment.ToString());
+            }
+            else
+            {
+                Console.WriteLine($"  --> PR size comment is already up to date.");
             }
         }
 

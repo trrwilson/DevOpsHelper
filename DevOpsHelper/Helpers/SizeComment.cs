@@ -60,6 +60,16 @@ namespace DevOpsHelper.Helpers
                 result.Commit.Id = buildMatch.Groups[2].Value;
             }
 
+            var entryMatches = Regex.Matches(comment, "\\|(.*)\\| `([0-9]*)` \\| `([0-9]*)` \\| `([0-9]*)` \\|");
+            foreach (var entryMatch in entryMatches)
+            {
+                var match = entryMatch as Match;
+                result.Entries.Add((
+                    match.Groups[1].ToString().Trim(),
+                    int.Parse($"{match.Groups[2]}"),
+                    int.Parse($"{match.Groups[3]}")));
+            }
+
             return result;
         }
 

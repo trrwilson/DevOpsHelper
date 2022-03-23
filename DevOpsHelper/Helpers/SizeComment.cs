@@ -1,5 +1,6 @@
 ﻿using DevOpsMinClient.DataTypes;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
 
 namespace DevOpsHelper.Helpers
@@ -21,7 +22,14 @@ namespace DevOpsHelper.Helpers
             // publishing timing with the PRs
             return (!string.IsNullOrEmpty(this.Version)
                 && !string.IsNullOrEmpty(other?.Version)
-                && this.GetBestCommitId()[..7] == this.GetBestCommitId()[..7]);
+                && this.GetBestCommitId()[..7] == this.GetBestCommitId()[..7]
+                && this.Entries != null
+                && other.Entries != null
+                && this.Entries.Count == other.Entries.Count
+                && this.Entries.All(thisEntry => other.Entries.Any(otherEntry =>
+                    otherEntry.Name == thisEntry.Name
+                    && otherEntry.ReferenceSize == thisEntry.ReferenceSize
+                    && otherEntry.ObservedSize == thisEntry.ObservedSize)));
         }
 
         public static SizeComment Parse(string comment)

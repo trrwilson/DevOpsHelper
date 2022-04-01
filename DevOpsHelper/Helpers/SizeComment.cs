@@ -56,7 +56,7 @@ namespace DevOpsHelper.Helpers
                 result.Commit.Id = buildMatch.Groups[2].Value;
             }
 
-            var entryMatches = Regex.Matches(comment, "\\|(.*)\\| `([0-9]*)` \\| `([0-9]*)` \\| `([0-9]*)` \\|");
+            var entryMatches = Regex.Matches(comment, "\\|(.*)\\| `([0-9]*)` \\| `([0-9]*)` \\| `([\\+\\-0-9]*)` \\|");
             foreach (var entryMatch in entryMatches)
             {
                 var match = entryMatch as Match;

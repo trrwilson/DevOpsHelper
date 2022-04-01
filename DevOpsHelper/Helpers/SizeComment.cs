@@ -18,18 +18,14 @@ namespace DevOpsHelper.Helpers
 
         public bool IsSameAs(SizeComment other)
         {
-            // Very aggressive null checking as this is prone to some strange state depending on
-            // publishing timing with the PRs
-            return (!string.IsNullOrEmpty(this.Version)
-                && !string.IsNullOrEmpty(other?.Version)
-                && this.GetBestCommitId()[..7] == this.GetBestCommitId()[..7]
-                && this.Entries != null
-                && other.Entries != null
-                && this.Entries.Count == other.Entries.Count
+            // Perform equivalency comparison purely on the delta entries to avoid "it's new!" notifications every
+            // time the target merge branch changes (including in ways entirely unrelated to this change)
+            return (this.Entries == null) == (other?.Entries == null)
+                && this.Entries.Count == other?.Entries.Count
                 && this.Entries.All(thisEntry => other.Entries.Any(otherEntry =>
                     otherEntry.Name == thisEntry.Name
-                    && otherEntry.ReferenceSize == thisEntry.ReferenceSize
-                    && otherEntry.ObservedSize == thisEntry.ObservedSize)));
+                        && otherEntry.ReferenceSize == thisEntry.ReferenceSize
+                        && otherEntry.ObservedSize == thisEntry.ObservedSize));
         }
 
         public static SizeComment Parse(string comment)
@@ -97,8 +93,9 @@ namespace DevOpsHelper.Helpers
             }
             else
             {
-                comment += $"Hello! Your PR has artifacts that appear to match one of these reference builds:\n";
+                comment += $"Hello! Your PR has artifacts that appear to match this reference build:\n";
                 comment += GetReferenceBuildLine();
+                comment += "(There may be newer builds; this is the oldest that matches the below)\n";
                 comment += "\nHere's a comparison of sizes:\n";
                 comment += table;
             }
@@ -115,18 +112,5 @@ namespace DevOpsHelper.Helpers
             result += $"({this.Build.SourceBranch} @{this.Build.HeadCommit.Substring(0, 7)})\n";
             return result;
         }
-
-        private string GetBestCommitId()
-        {
-            if (this.Build != null)
-            {
-                return this.Build.HeadCommit;
-            }
-            else
-            {
-                return this.Commit.Id;
-            }
-        }
-
     }
 }

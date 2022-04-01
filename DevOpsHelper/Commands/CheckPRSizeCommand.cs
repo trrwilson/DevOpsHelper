@@ -205,7 +205,7 @@ namespace DevOpsHelper.Commands
 
             var comment = new SizeComment()
             {
-                ProjectUrl = client.GetProjectFromUrl(),
+                ProjectUrl = $"{client.GetUrlWithoutProject()}/{client.GetProjectFromUrl()}",
                 Build = referenceBuild,
                 Commit = (await client.GetCommitsAsync(new ADOCommitFilter()
                 {

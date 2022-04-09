@@ -527,6 +527,7 @@ namespace DevOpsMinClient
                 + $"/groupby(("
                     + "Outcome, "
                     + "PipelineRun/PipelineRunId, "
+                    + "PipelineRun/RunReason, "
                     + "Test/TestCaseReferenceId, "
                     + "Test/ContainerName, "
                     + "Test/FullyQualifiedTestName, "

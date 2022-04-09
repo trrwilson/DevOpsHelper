@@ -36,6 +36,7 @@ namespace DevOpsHelper.Commands
                 OptionDefinition.UpdateTestFailureBugs.FailureIgnorePatterns,
                 OptionDefinition.UpdateTestFailureBugs.CommonBranchPrefix,
                 OptionDefinition.UpdateTestFailureBugs.IdleDayAutoCloseCount,
+                OptionDefinition.UpdateTestFailureBugs.BuildReasons,
             };
             command.AddOptions(requiredOptions, nonRequiredOptions);
 
@@ -76,6 +77,23 @@ namespace DevOpsHelper.Commands
 
             Console.Write($"Querying failures for {Options.Branch}... ");
             var queriedFailures = await client.GetTestResultsAsync(filter);
+
+            var failuresByBuildType = queriedFailures.GroupBy(failure => failure.BuildReason);
+
+            Console.WriteLine($"Found {queriedFailures.Count} instances across these build reasons:");
+            foreach (var pair in failuresByBuildType)
+            {
+                Console.WriteLine($"{pair.Key,30} : {pair.Count()}");
+            }
+
+            if (Options.BuildReasons.Any())
+            {
+                Console.WriteLine($"Only considering failures for build reasons: {string.Join(",", Options.BuildReasons)}");
+                queriedFailures = queriedFailures
+                    .Where(failure => Options.BuildReasons.Any(reason => reason == failure.BuildReason))
+                    .ToList();
+            }
+
             var fullNameToFailureGroups = queriedFailures.GroupBy(failure => failure.TestFullName);
             var filters = Options.FailureIgnorePatterns;
             var nameToFailureGroups = fullNameToFailureGroups
@@ -567,6 +585,10 @@ namespace DevOpsHelper.Commands
             private static Lazy<int> LazyAutoCloseIdleDays = new(() =>
                 OptionDefinition.UpdateTestFailureBugs.IdleDayAutoCloseCount.ValueFrom(Options.Command, 14));
             public static int AutoCloseIdleDays { get => LazyAutoCloseIdleDays.Value; }
+
+            public static Lazy<List<string>> LazyBuildReasons = new(() =>
+                OptionDefinition.UpdateTestFailureBugs.BuildReasons.ValueFrom(Options.Command));
+            public static List<string> BuildReasons { get => LazyBuildReasons.Value; }
         }
 
     }

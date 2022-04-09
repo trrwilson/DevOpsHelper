@@ -21,6 +21,8 @@ namespace DevOpsMinClient.DataTypes
         public string TestFullName { get; set; }
         [ADOBindableToken("$.Outcome")]
         public string Outcome { get; set; }
+        [ADOBindableToken("$.PipelineRun.RunReason")]
+        public string BuildReason { get; set; }
         [ADOBindableToken("$.PipelineRun.PipelineRunId")]
         public int BuildId { get; set; }
         [ADOBindableToken("$.TestRun.CompletedDate")]

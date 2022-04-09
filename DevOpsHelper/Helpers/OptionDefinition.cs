@@ -187,6 +187,10 @@ namespace DevOpsHelper
                 "--branch-prefix",
                 "A common prefix, e.g. 'refs/heads/', to assume for all branch names if not present.",
                 "refs/heads/");
+            public static OptionDefinition<List<string>> BuildReasons { get; } = new(
+                "--build-reasons",
+                "A semicolon-delimted list of build (pipeline run) reasons to consider for this update",
+                new List<string>());
         }
 
         public static class FindFailures

@@ -40,5 +40,22 @@ namespace DevOpsMinClient.DataTypes
         public string GetTestUrl() => $"vstfs:///TestManagement/TcmTest/tcm.{this.TestId}";
         public string GetResultUrl() => $"vstfs:///TestManagement/TcmResult/{this.RunId}.{this.RunResultId}";
         public string GetBuildUrl() => $"vstfs:///Build/Build/{this.BuildId}";
+
+        public ADOSimpleTestResultInfo ToSimpleInfo()
+        {
+            return new ADOSimpleTestResultInfo()
+            {
+                BuildId = this.BuildId,
+                ContainerName = this.ContainerName,
+                Outcome = this.Outcome,
+                RunId = this.RunId,
+                RunResultId = this.RunResultId,
+                TestFullName = this.TestFullName,
+                TestId = this.TestId,
+                TestName = this.TestName,
+                When = this.When,
+                BuildReason = "???",
+            };
+        }
     }
 }

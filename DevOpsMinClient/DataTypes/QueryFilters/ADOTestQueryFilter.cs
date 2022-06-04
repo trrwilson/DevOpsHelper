@@ -11,7 +11,6 @@ namespace DevOpsMinClient.DataTypes.QueryFilters
         public string Outcome { get; set; }
         public string Branch { get; set; }
         public int BuildId { get; set; }
-
         public DateTime Start { get; set; } = DateTime.MinValue;
 
         public override string ToString()

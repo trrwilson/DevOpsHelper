@@ -128,6 +128,30 @@ namespace DevOpsMinClient
                 "$['dataProviders']['ms.vss-build-web.run-artifacts-download-data-provider']['downloadUrl']");
         }
 
+        public async Task<JObject> GetBuildTestHierarchyObjectAsync(int buildId)
+        {
+            var requestUrl = $"{this.GetUrlWithoutProject()}"
+                + $"/_apis/Contribution/HierarchyQuery/project/{this.GetProjectFromUrl()}"
+                + $"?api-version=5.0-preview.1";
+            var responseText = await this.PostAsync(requestUrl, new
+            {
+                contributionIds = new List<string>
+                {
+                    "ms.vss-test-web.test-tab-build-resultdetails-data-provider",
+                },
+                dataProviderContext = new { properties = new { sourcePage = new
+                {
+                    url = $"{this.baseUrl}/_build/results?buildId={buildId}&view=ms.vss-test-web.build-test-results-tab",
+                    routeValues = new
+                    {
+                        project = this.GetProjectFromUrl(),
+                    },
+                }}},
+            });;
+
+            return JObject.Parse(responseText);
+        }
+
         public async Task<JObject> GetArtifactHierarchyObjectAsync(int buildId, int artifactId, string downloadPath = null)
         {
             downloadPath = RegexExtensions.TryMatch(downloadPath, "/?[^/]*(/.*)", out var match)
@@ -225,14 +249,6 @@ namespace DevOpsMinClient
                 .Where(item => includeClosed || item.State != "Closed")
                 .ToList();
             return workItemResults;
-        }
-
-        public async Task<JToken> GetTestResultDetailAsync(int testRunId, int testResultId)
-        {
-            var url = $"{this.baseUrl}/_apis/test/Runs/{testRunId}/Results/{testResultId}?api-version=5.1";
-            var response = await this.GetAsync(url);
-            var resultDetail = JObject.Parse(response);
-            return resultDetail;
         }
 
         public async Task<List<ADOBuildTimelineRecord>> GetBuildTimelineRecordsAsync(int buildId)
@@ -544,22 +560,25 @@ namespace DevOpsMinClient
                 .ToList();
         }
 
-        public async Task<ADODetailedTestResultInfo> GetDetailedTestResultInfoAsync(ADOSimpleTestResultInfo simpleInfo)
+        public async Task<ADODetailedTestResultInfo> GetDetailedTestResultInfoAsync(int runId, int resultId)
         {
-            var url = $"{this.baseUrl}/_apis/test/Runs/{simpleInfo.RunId}/Results/{simpleInfo.RunResultId}?detailsToInclude=SubResults";
+            var url = $"{this.baseUrl}/_apis/test/Runs/{runId}/Results/{resultId}?detailsToInclude=SubResults";
             var response = await this.GetAsync(url);
             var result = JsonConvert.DeserializeObject<ADODetailedTestResultInfo>(response);
             if (string.IsNullOrEmpty(result.BuildLabel))
             {
                 this.ErrorReceived?.Invoke(
                     "DetailedTestResult",
-                    $"Couldn't find detailed test result info for run result ID {simpleInfo.RunResultId}.");
+                    $"Couldn't find detailed test result info for run result ID {resultId}.");
                 return null;
             }
             return result;
         }
 
-        public async Task<ADODetailedTestResultInfo> GetDetailedTestResultInfoAsync(
+        public Task<ADODetailedTestResultInfo> GetDetailedTestResultInfoAsync(ADOSimpleTestResultInfo simpleInfo)
+            => this.GetDetailedTestResultInfoAsync(simpleInfo.RunId, simpleInfo.RunResultId);
+
+        public async Task<ADODetailedTestResultInfo> GetLatestDetailedTestResultInfoAsync(
             List<ADOSimpleTestResultInfo> orderedSimpleInfos)
         {
             for (int i = orderedSimpleInfos.Count - 1; i >= 0; i--)

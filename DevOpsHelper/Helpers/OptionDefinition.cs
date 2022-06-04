@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.CommandLineUtils;
 using System;
 using System.Collections.Generic;
+using System.Data;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -154,7 +155,13 @@ namespace DevOpsHelper
         }
 
         public static class UpdateTestFailureBugs
-        {
+        { 
+            public static OptionDefinition UseNonAnalyticsStrategy = new(
+                "--without-analytics-apis",
+                "If specified, use an alternative, more expensive approach that doesn't involve analytics APIs.")
+            {
+                OptionType = CommandOptionType.NoValue,
+            };
             public static OptionDefinition<int> PipelineId = new OptionDefinition<int>(
                 "--pipeline-id",
                 "The identifier for the pipeline that should be queried for failures.");

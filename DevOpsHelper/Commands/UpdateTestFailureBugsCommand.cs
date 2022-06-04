@@ -3,6 +3,7 @@ using DevOpsMinClient.DataTypes;
 using DevOpsMinClient.DataTypes.Details;
 using DevOpsMinClient.DataTypes.QueryFilters;
 using Microsoft.Extensions.CommandLineUtils;
+using Newtonsoft.Json.Linq;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -33,6 +34,7 @@ namespace DevOpsHelper.Commands
             };
             var nonRequiredOptions = new OptionDefinition[]
             {
+                OptionDefinition.UpdateTestFailureBugs.UseNonAnalyticsStrategy,
                 OptionDefinition.UpdateTestFailureBugs.FailureIgnorePatterns,
                 OptionDefinition.UpdateTestFailureBugs.CommonBranchPrefix,
                 OptionDefinition.UpdateTestFailureBugs.IdleDayAutoCloseCount,
@@ -54,8 +56,9 @@ namespace DevOpsHelper.Commands
 
             Options.Command = this.baseCommand;
 
-            var matchingResultInfo = await QueryFailureInfoAsync();
-            var allFailureData = await QueryWorkItemFailureCollectionsAsync(matchingResultInfo);
+            var allFailureData = Options.UseNonAnalyticsStrategy
+                ? await GetNonAnalyticsFailureCollectionsAsync()
+                : await GetAnalyticsFailureCollectionsAsync();
 
             ConsolidateWorkItemAutomationInfo(allFailureData);
             await ReflectFailuresToWorkItemsAsync(allFailureData);
@@ -63,6 +66,99 @@ namespace DevOpsHelper.Commands
             await ProcessQueryCleanupAsync(allFailureData);
 
             return 0;
+        }
+
+        private async Task<List<FailureInfoCollection>> GetNonAnalyticsFailureCollectionsAsync()
+        {
+            Console.WriteLine($"Getting builds for {Options.Branch} from the last {Options.AutoCloseIdleDays} days...");
+            var builds = await this.client.GetBuildsAsync(new ADOBuildFilter()
+            {
+                Branch = Options.Branch,
+                Definition = Options.PipelineId,
+                Oldest = DateTime.Now - TimeSpan.FromDays(Options.AutoCloseIdleDays),
+                MaxResults = 100,
+            });
+            Console.WriteLine($"Found {builds.Count} builds. Getting all failure instances...");
+            var buildsWithHierarchyDocuments = await Task.WhenAll(builds
+                .Select(async build => (Build: build, Hierarchy: await this.client.GetBuildTestHierarchyObjectAsync(build.Id))));
+            var buildsWithFailureRunAndTestIds = buildsWithHierarchyDocuments
+                .Select(buildWithHierarchy => (
+                    Build: buildWithHierarchy.Build,
+                    Failures: buildWithHierarchy.Hierarchy.SelectTokens("$..resultsForGroup").Children()
+                        .Where(failureNode => failureNode.SelectTokens("$..outcome")
+                            .Any(outcome => outcome.Value<int>() == 3))
+                        .SelectMany(failureNode =>
+                        {
+                            var failureResults = failureNode.SelectToken("$.results") as JArray;
+                            var failureIds = failureResults.Select(failureEntry => failureEntry.Value<int>("id"));
+                            var groupByValue = failureNode["groupByValue"] as JObject;
+                            var groupByValueId = groupByValue.Value<int>("id");
+                            return failureIds.Select(failureId => (RunId: groupByValueId, TestId: failureId));
+                        }).ToList()
+                    )).ToList();
+            var filteredBuildsWithFailureRunAndTestIds = buildsWithFailureRunAndTestIds
+                .Where(entry => Options.BuildReasons.Any(reason => entry.Build.Reason.ToLower() == reason.ToLower()))
+                .ToList();
+            Console.WriteLine($"Found {buildsWithFailureRunAndTestIds.Sum(entry => entry.Failures.Count)} total failure instances.");
+            Console.WriteLine($"  ...{filteredBuildsWithFailureRunAndTestIds.Sum(entry => entry.Failures.Count)} matched filters.");
+
+            Console.WriteLine($"Querying for a whole lot of detailed failure information...");
+            // With no analytics available, we're forced to query detailed results for EVERY failure we're interested in. Egads!
+            var detailedFailures = await Task.WhenAll(filteredBuildsWithFailureRunAndTestIds
+                .SelectMany(entry => entry.Failures)
+                .Select(async failure => await this.client.GetDetailedTestResultInfoAsync(failure.RunId, failure.TestId)));
+
+            var detailedFailuresByName = detailedFailures.GroupBy(failure => failure.TestFullName).ToList();
+            Console.WriteLine($"  ...and found {detailedFailuresByName.Count} distinctly named failures...");
+
+            // We just grouped all the test instances with the same name together but now we want to separate them if they're in
+            // different test containers (test assemblies)
+            // SelectMany doesn't play nice with async lambdas, so we do an unflattened list of lists before flattening it afterwards.
+            var unflattenedFailureCollections = await Task.WhenAll(detailedFailuresByName
+                .Select(async sameNameFailureGroup =>
+                {
+                    var allWorkItemsForName = await this.client.GetWorkItemsRelatedToTestNameAsync(sameNameFailureGroup.Key);
+                    var sameNameAndContainerGroups = sameNameFailureGroup.GroupBy(sameNameFailure =>
+                    {
+                        var rawContainerName = sameNameFailure.ContainerName;
+                        var containerNameExtension = new FileInfo(rawContainerName).Extension;
+                        return rawContainerName[..^containerNameExtension.Length];
+                    });
+                    var failureCollectionsForNameAndContainer = sameNameAndContainerGroups.Select(sameNameAndContainerGroup =>
+                    {
+                        var workItemsForContainer = allWorkItemsForName
+                            .Where(workItem => workItem.AutomatedTestContainer == sameNameAndContainerGroup.Key);
+                        allWorkItemsForName.RemoveAll(workItem => workItemsForContainer.Any(assignedWorkItem => workItem.Id == assignedWorkItem.Id));
+                        return new FailureInfoCollection()
+                        {
+                            Container = sameNameAndContainerGroup.Key,
+                            Name = sameNameFailureGroup.Key,
+                            DetailedFailures = sameNameAndContainerGroup.ToList(),
+                            WorkItems = workItemsForContainer.ToList(),
+                        };
+                    });
+                    return failureCollectionsForNameAndContainer;
+                }));
+
+            var failureCollections = unflattenedFailureCollections.SelectMany(subCollection => subCollection).ToList();
+
+            Console.WriteLine($"  ...{failureCollections.Count} distinct when considering containers. Here they are:");
+            foreach (var failureCollection in failureCollections)
+            {
+                Console.WriteLine($"---");
+                Console.WriteLine($"Test Name: {failureCollection.Name}");
+                Console.WriteLine($"Container: {failureCollection.Container}");
+                Console.WriteLine($"Hits     : {failureCollection.DetailedFailures.Count}");
+            }
+
+            return failureCollections;
+        }
+
+        private async Task<List<FailureInfoCollection>> GetAnalyticsFailureCollectionsAsync()
+        {
+            var matchingResultInfo = await QueryFailureInfoAsync();
+            var allFailureData = await QueryWorkItemFailureCollectionsAsync(matchingResultInfo);
+            return allFailureData;
         }
 
         private async Task<IEnumerable<ADOSimpleTestResultInfo>> QueryFailureInfoAsync()
@@ -124,7 +220,7 @@ namespace DevOpsHelper.Commands
             // SelectMany doesn't play nice with async lambdas, so we do this as a separate step.
             var flattenedResult = unflattenedResult
                 .SelectMany(failureChunk => failureChunk)
-                .OrderByDescending(failureInfo => failureInfo.Failures.Count)
+                .OrderByDescending(failureInfo => failureInfo.FailureCount)
                 .ToList();
 
             Console.WriteLine($"found {flattenedResult.Count} entries.");
@@ -151,7 +247,7 @@ namespace DevOpsHelper.Commands
                 {
                     Name = failureGroup.First().TestFullName,
                     Container = failureContainerPair.Key,
-                    Failures = failureContainerPair.ToList(),
+                    SimpleFailures = failureContainerPair.ToList(),
                     WorkItems = allWorkItems
                         .Where(workItem => workItem.AutomatedTestContainer == failureContainerPair.Key)
                         .ToList()
@@ -164,7 +260,7 @@ namespace DevOpsHelper.Commands
                 failureInfosWithContainers.Add(new FailureInfoCollection()
                 {
                     Name = failureGroup.First().TestFullName,
-                    Failures = new(),
+                    SimpleFailures = new(),
                     WorkItems = containerlessWorkitems.ToList()
                 });
             }
@@ -217,24 +313,25 @@ namespace DevOpsHelper.Commands
             Console.WriteLine($"Matching information between {allFailureInfo.Count} failure entries and work items...");
 
             var bucketsWithoutWorkItems = allFailureInfo.Where(bucket =>
-                bucket.Failures.Count >= Options.AutoFileThreshold && bucket.WorkItems.Count == 0);
+                bucket.FailureCount >= Options.AutoFileThreshold && bucket.WorkItems.Count == 0);
 
             foreach (var bucket in bucketsWithoutWorkItems)
             {
-                var detailedFailure = await this.client.GetDetailedTestResultInfoAsync(bucket.Failures);
+                var latestDetailedFailure = 
+                    bucket.DetailedFailures != null ? bucket.DetailedFailures.OrderByDescending(failure => failure.When).First()
+                        : await this.client.GetLatestDetailedTestResultInfoAsync(bucket.SimpleFailures);
 
-                if (detailedFailure != null)
+                if (latestDetailedFailure != null)
                 {
-
                     var newItem = new ADOWorkItem()
                     {
                         WorkItemType = "Bug",
                         Title = string.Format("* {0} [{1}] failed in {2} ({3})",
-                                detailedFailure.TestName.Truncate(100),
-                                detailedFailure.ContainerName,
-                                detailedFailure.BuildLabel,
+                                latestDetailedFailure.TestName.Truncate(100),
+                                latestDetailedFailure.ContainerName,
+                                latestDetailedFailure.BuildLabel,
                                 trimmedBranchName),
-                        ReproSteps = GetReproStepsAutogenHtml(bucket.Failures.Count, detailedFailure),
+                        ReproSteps = GetReproStepsAutogenHtml(bucket.FailureCount, latestDetailedFailure),
                     };
                     bucket.WorkItems.Add(newItem);
                     Console.WriteLine($"New bug: {newItem.Title.Truncate(95)}...");
@@ -250,9 +347,10 @@ namespace DevOpsHelper.Commands
                     => !string.IsNullOrEmpty(input) && input.StartsWith(prefix) ? input : prefix;
                 newestItem.AreaPath = GetEnsuredPrefix(newestItem.AreaPath, Options.BugAreaPath);
                 newestItem.IterationPath = GetEnsuredPrefix(newestItem.IterationPath, Options.BugIterationPath);
-                newestItem.IncidentCount = bucket.Failures.Count;
-                newestItem.LastHitDate = bucket.Failures
-                    .Select(failure => failure.When)
+                newestItem.IncidentCount = bucket.FailureCount;
+                newestItem.LastHitDate = (bucket.DetailedFailures != null 
+                        ? bucket.DetailedFailures.Select(failure => failure.When)
+                        : bucket.SimpleFailures.Select(failure => failure.When))
                     .OrderByDescending(failureDate => failureDate)
                     .FirstOrDefault();
                 newestItem.AutomatedTestName = bucket.Name;
@@ -266,12 +364,17 @@ namespace DevOpsHelper.Commands
             // collection
             foreach (var relation in workItem.Relations.ToList())
             {
-                if ((relation.Name == "Test" && !info.Failures
-                    .Any(workItemFailure => workItemFailure.GetTestUrl() == relation.Url))
-                    || (relation.Name == "Test Result" && !info.Failures
-                    .Any(workItemFailure => workItemFailure.GetResultUrl() == relation.Url))
-                    || (relation.Name == "Build" && !info.Failures
-                    .Any(workItemFailure => workItemFailure.GetBuildUrl() == relation.Url)))
+                bool ShouldRemoveTestRelation() => relation.Name == "Test" && (info.DetailedFailures != null
+                    ? !info.DetailedFailures.Any(failure => failure.GetTestUrl() == relation.Url)
+                    : !info.SimpleFailures.Any(failure => failure.GetTestUrl() == relation.Url));
+                bool ShouldRemoveResultRelation() => relation.Name == "Test Result" && (info.DetailedFailures != null
+                    ? !info.DetailedFailures.Any(failure => failure.GetResultUrl() == relation.Url)
+                    : !info.SimpleFailures.Any(failure => failure.GetResultUrl() == relation.Url));
+                bool ShouldRemoveBuildRelation() => relation.Name == "Build" && (info.DetailedFailures != null
+                    ? !info.DetailedFailures.Any(failure => failure.GetBuildUrl() == relation.Url)
+                    : !info.SimpleFailures.Any(failure => failure.GetBuildUrl() == relation.Url));
+
+                if (ShouldRemoveTestRelation() || ShouldRemoveResultRelation() || ShouldRemoveBuildRelation())
                 {
                     workItem.Relations.Remove(relation);
                 }
@@ -289,11 +392,14 @@ namespace DevOpsHelper.Commands
                 }
             }
 
-            foreach (var failure in info.Failures)
+            foreach (var (buildUrl, testUrl, resultUrl) in
+                (info.DetailedFailures != null
+                    ? info.DetailedFailures.Select(failure => (failure.GetBuildUrl(), failure.GetTestUrl(), failure.GetResultUrl()))
+                    : info.SimpleFailures.Select(failure => (failure.GetBuildUrl(), failure.GetTestUrl(), failure.GetResultUrl()))))
             {
-                AddRelationIfNew(failure.GetBuildUrl(), "Build");
-                AddRelationIfNew(failure.GetTestUrl(), "Test");
-                AddRelationIfNew(failure.GetResultUrl(), "Test Result");
+                AddRelationIfNew(buildUrl, "Build");
+                AddRelationIfNew(testUrl, "Test");
+                AddRelationIfNew(resultUrl, "Test Result");
             }
         }
 
@@ -328,7 +434,9 @@ namespace DevOpsHelper.Commands
             {
                 var failuresForItem = failureInfoList
                     .Where(entry => entry.WorkItems.Any(workItem => workItem.Id == inQueryItem.Id))
-                    .SelectMany(entry => entry.Failures)
+                    .SelectMany(entry => entry.DetailedFailures != null
+                        ? entry.DetailedFailures.Select(detailedFailure => detailedFailure.ToSimpleInfo())
+                        : entry.SimpleFailures)
                     .ToList();
 
                 ChangesForUnassociatedRelations(inQueryItem, failuresForItem);
@@ -465,7 +573,7 @@ namespace DevOpsHelper.Commands
             {
                 Console.WriteLine($" Updating repro steps (v '{currentReproStepsVersion}' to v '{reproStepsAutogenHtmlVersion}')"
                     + $" {workItem.Id}: {workItem.Title.Truncate(50),-50}...");
-                var detailedFailure = await this.client.GetDetailedTestResultInfoAsync(simpleFailures);
+                var detailedFailure = await this.client.GetLatestDetailedTestResultInfoAsync(simpleFailures);
                 if (detailedFailure != null)
                 {
                     var newReproSteps = GetReproStepsAutogenHtml(simpleFailures.Count, detailedFailure);
@@ -538,13 +646,22 @@ namespace DevOpsHelper.Commands
         {
             public string Name;
             public string Container;
-            public List<ADOSimpleTestResultInfo> Failures;
+            public List<ADOSimpleTestResultInfo> SimpleFailures;
+            public List<ADODetailedTestResultInfo> DetailedFailures;
             public List<ADOWorkItem> WorkItems;
+
+            public int FailureCount { get => this.DetailedFailures?.Count ?? this.SimpleFailures.Count; }
         }
 
         private class Options
         {
             public static CommandLineApplication Command;
+
+            public static bool UseNonAnalyticsStrategy
+            {
+                get => Options.Command.Options.Any(
+                    option => option.Template == OptionDefinition.UpdateTestFailureBugs.UseNonAnalyticsStrategy.Template);
+            }
 
             private static Lazy<string> LazyBranch = new(() =>
             OptionDefinition.UpdateTestFailureBugs.Branch.ValueFrom(Options.Command));

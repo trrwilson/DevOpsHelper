@@ -24,6 +24,8 @@ namespace DevOpsMinClient.DataTypes
         [JsonProperty("buildNumber")]
         public string Label { get; set; }
 
+        public DateTime QueueTime { get; set; }
+
         public DateTime StartTime { get; set; }
 
         public int Id { get; set; }
@@ -32,6 +34,8 @@ namespace DevOpsMinClient.DataTypes
         public string HeadCommit { get; set; }
 
         public string Reason { get; set; }
+
+        public string Status { get; set; }
 
         public ADOPerson RequestedFor { get; set; }
 

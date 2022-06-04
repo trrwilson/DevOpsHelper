@@ -17,6 +17,8 @@ namespace DevOpsMinClient.DataTypes
         public DateTime Start { get; set; }
         [ADOBindableToken("$.finishTime")]
         public DateTime Finish { get; set; }
+        [ADOBindableToken("$.queueTime")]
+        public DateTime Queue { get; set; }
         [ADOBindableToken("$.state")]
         public string State { get; set; }
         [ADOBindableToken("$.result")]

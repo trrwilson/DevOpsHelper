@@ -128,7 +128,8 @@ namespace DevOpsHelper.Commands
                     {
                         var workItemsForContainer = allWorkItemsForName
                             .Where(workItem => workItem.AutomatedTestContainer == sameNameAndContainerGroup.Key);
-                        allWorkItemsForName.RemoveAll(workItem => workItemsForContainer.Any(assignedWorkItem => workItem.Id == assignedWorkItem.Id));
+                        // To do: manage orphaned bugs (but don't remove them like this)
+                        // allWorkItemsForName.RemoveAll(workItem => workItemsForContainer.Any(assignedWorkItem => workItem.Id == assignedWorkItem.Id));
                         return new FailureInfoCollection()
                         {
                             Container = sameNameAndContainerGroup.Key,
@@ -140,7 +141,10 @@ namespace DevOpsHelper.Commands
                     return failureCollectionsForNameAndContainer;
                 }));
 
-            var failureCollections = unflattenedFailureCollections.SelectMany(subCollection => subCollection).ToList();
+            var failureCollections = unflattenedFailureCollections
+                .SelectMany(subCollection => subCollection)
+                .OrderByDescending(failure => failure.FailureCount)
+                .ToList();
 
             Console.WriteLine($"  ...{failureCollections.Count} distinct when considering containers. Here they are:");
             foreach (var failureCollection in failureCollections)
@@ -149,6 +153,10 @@ namespace DevOpsHelper.Commands
                 Console.WriteLine($"Test Name: {failureCollection.Name}");
                 Console.WriteLine($"Container: {failureCollection.Container}");
                 Console.WriteLine($"Hits     : {failureCollection.DetailedFailures.Count}");
+                if (failureCollection.WorkItems.Any())
+                {
+                    Console.WriteLine($"Bugs     : {string.Join(' ', failureCollection.WorkItems.Select(bug => bug.Id))}");
+                }
             }
 
             return failureCollections;

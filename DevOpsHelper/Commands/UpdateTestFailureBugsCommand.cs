@@ -56,6 +56,10 @@ namespace DevOpsHelper.Commands
 
             Options.Command = this.baseCommand;
 
+            // This command can be handled with a strategy that leverages the Analytics API (which allows learning
+            // about many test failures across many builds with a single REST query) or with a strategy that
+            // iteratively uses catch-all HierarchyQuery capabilities to simulate clicking into build results one
+            // by one. Analytics generates much less traffic and should be used when available.
             var allFailureData = Options.UseNonAnalyticsStrategy
                 ? await GetNonAnalyticsFailureCollectionsAsync()
                 : await GetAnalyticsFailureCollectionsAsync();
@@ -68,85 +72,64 @@ namespace DevOpsHelper.Commands
             return 0;
         }
 
+        // If DevOps Analytics APIs are unavailable, we can't issue single queries for an aggregate view of failures
+        // across builds. Instead, we'll use catch-all "hierarchy" queries to simulate clicking into each build and
+        // looking at failures like a human would -- just a lot faster and more precisely.
         private async Task<List<FailureInfoCollection>> GetNonAnalyticsFailureCollectionsAsync()
         {
-            Console.WriteLine($"Getting builds for {Options.Branch} from the last {Options.AutoCloseIdleDays} days...");
-            var builds = await this.client.GetBuildsAsync(new ADOBuildFilter()
+            var builds = await this.GetMatchingBuildsAsync();
+
+            Console.WriteLine($"Finding all failures associated with matching builds...");
+            var allFailures = await this.client.GetTestFailuresForBuildsAsync(builds);
+            Console.WriteLine($"Found {allFailures.Count} total failure instances...");
+
+            // Windows test containers may have an extension (e.g. "unit_test.exe") while non-Windows containers may
+            // not (e.g. "unit_test"). We'll normalize (via removing extensions) to ensure we treat them similarly.
+            string GetNormalizedContainerName(string rawContainerName)
             {
-                Branch = Options.Branch,
-                Definition = Options.PipelineId,
-                Oldest = DateTime.Now - TimeSpan.FromDays(Options.AutoCloseIdleDays),
-                MaxResults = 100,
-            });
-            Console.WriteLine($"Found {builds.Count} builds. Getting all failure instances...");
-            var buildsWithHierarchyDocuments = await Task.WhenAll(builds
-                .Select(async build => (Build: build, Hierarchy: await this.client.GetBuildTestHierarchyObjectAsync(build.Id))));
-            var buildsWithFailureRunAndTestIds = buildsWithHierarchyDocuments
-                .Select(buildWithHierarchy => (
-                    Build: buildWithHierarchy.Build,
-                    Failures: buildWithHierarchy.Hierarchy.SelectTokens("$..resultsForGroup").Children()
-                        .Where(failureNode => failureNode.SelectTokens("$..outcome")
-                            .Any(outcome => outcome.Value<int>() == 3))
-                        .SelectMany(failureNode =>
-                        {
-                            var failureResults = failureNode.SelectToken("$.results") as JArray;
-                            var failureIds = failureResults.Select(failureEntry => failureEntry.Value<int>("id"));
-                            var groupByValue = failureNode["groupByValue"] as JObject;
-                            var groupByValueId = groupByValue.Value<int>("id");
-                            return failureIds.Select(failureId => (RunId: groupByValueId, TestId: failureId));
-                        }).ToList()
-                    )).ToList();
-            var filteredBuildsWithFailureRunAndTestIds = buildsWithFailureRunAndTestIds
-                .Where(entry => Options.BuildReasons.Any(reason => entry.Build.Reason.ToLower() == reason.ToLower()))
-                .ToList();
-            Console.WriteLine($"Found {buildsWithFailureRunAndTestIds.Sum(entry => entry.Failures.Count)} total failure instances.");
-            Console.WriteLine($"  ...{filteredBuildsWithFailureRunAndTestIds.Sum(entry => entry.Failures.Count)} matched filters.");
+                var containerFileInfo = new FileInfo(rawContainerName);
+                var containerExtension = containerFileInfo.Extension;
+                return rawContainerName[..^containerExtension.Length];
+            }
 
-            Console.WriteLine($"Querying for a whole lot of detailed failure information...");
-            // With no analytics available, we're forced to query detailed results for EVERY failure we're interested in. Egads!
-            var detailedFailures = await Task.WhenAll(filteredBuildsWithFailureRunAndTestIds
-                .SelectMany(entry => entry.Failures)
-                .Select(async failure => await this.client.GetDetailedTestResultInfoAsync(failure.RunId, failure.TestId)));
+            // We want to combine the tallies of failure instances when it's the same test -- which we'll consider
+            // equivalent to "shares the same name" and "shares the same automated test container." The latter
+            // safeguards against "GenericTest1" in two different test binaries getting lumped together.
+            var groupedFailures = allFailures
+                .GroupBy(failure => (
+                    Name: failure.TestFullName,
+                    Container: GetNormalizedContainerName(failure.ContainerName)));
+            Console.WriteLine($"  ...and found {groupedFailures.Count()} distinct buckets.");
 
-            var detailedFailuresByName = detailedFailures.GroupBy(failure => failure.TestFullName).ToList();
-            Console.WriteLine($"  ...and found {detailedFailuresByName.Count} distinctly named failures...");
-
-            // We just grouped all the test instances with the same name together but now we want to separate them if they're in
-            // different test containers (test assemblies)
-            // SelectMany doesn't play nice with async lambdas, so we do an unflattened list of lists before flattening it afterwards.
-            var unflattenedFailureCollections = await Task.WhenAll(detailedFailuresByName
-                .Select(async sameNameFailureGroup =>
+            // Now we'll generate "failure info collections" to organize data about a failure bucket. This includes
+            // the name and container for the test, a reference to the detailed failure information, and full
+            // information about all active work items associated with the failure. That last part needs to be queried
+            // per-bucket and we parallelize that (to do: meter this instead of blasting it all) to keep it reasonably
+            // quick.
+            var failureCollections = (await Task.WhenAll(groupedFailures.Select(async failureGroup =>
+            {
+                var (name, container) = failureGroup.Key;
+                var workItemsForName = await this.client.GetWorkItemsRelatedToTestNameAsync(name);
+                var workItemsForNameAndContainer = workItemsForName
+                    .Where(workItem => workItem.AutomatedTestContainer == container);
+                return new FailureInfoCollection()
                 {
-                    var allWorkItemsForName = await this.client.GetWorkItemsRelatedToTestNameAsync(sameNameFailureGroup.Key);
-                    var sameNameAndContainerGroups = sameNameFailureGroup.GroupBy(sameNameFailure =>
-                    {
-                        var rawContainerName = sameNameFailure.ContainerName;
-                        var containerNameExtension = new FileInfo(rawContainerName).Extension;
-                        return rawContainerName[..^containerNameExtension.Length];
-                    });
-                    var failureCollectionsForNameAndContainer = sameNameAndContainerGroups.Select(sameNameAndContainerGroup =>
-                    {
-                        var workItemsForContainer = allWorkItemsForName
-                            .Where(workItem => workItem.AutomatedTestContainer == sameNameAndContainerGroup.Key);
-                        // To do: manage orphaned bugs (but don't remove them like this)
-                        // allWorkItemsForName.RemoveAll(workItem => workItemsForContainer.Any(assignedWorkItem => workItem.Id == assignedWorkItem.Id));
-                        return new FailureInfoCollection()
-                        {
-                            Container = sameNameAndContainerGroup.Key,
-                            Name = sameNameFailureGroup.Key,
-                            DetailedFailures = sameNameAndContainerGroup.ToList(),
-                            WorkItems = workItemsForContainer.ToList(),
-                        };
-                    });
-                    return failureCollectionsForNameAndContainer;
-                }));
+                    Name = name,
+                    Container = container,
+                    DetailedFailures = failureGroup
+                        .OrderByDescending(failure => failure.When)
+                        .ToList(),
+                    WorkItems = workItemsForNameAndContainer
+                        .OrderByDescending(workItem => workItem.Id)
+                        .ToList(),
+                };
+            }))).ToList();
 
-            var failureCollections = unflattenedFailureCollections
-                .SelectMany(subCollection => subCollection)
-                .OrderByDescending(failure => failure.FailureCount)
+            failureCollections = failureCollections
+                .OrderByDescending(failure => failure.DetailedFailures.Count)
                 .ToList();
 
-            Console.WriteLine($"  ...{failureCollections.Count} distinct when considering containers. Here they are:");
+            Console.WriteLine($"SUMMARY OF FAILURES FOUND: ");
             foreach (var failureCollection in failureCollections)
             {
                 Console.WriteLine($"---");
@@ -160,6 +143,29 @@ namespace DevOpsHelper.Commands
             }
 
             return failureCollections;
+        }
+
+        private async Task<IEnumerable<ADOBuild>> GetMatchingBuildsAsync()
+        {
+            Console.WriteLine($"Getting builds for {Options.Branch} from the last {Options.AutoCloseIdleDays} days...");
+            var builds = await this.client.GetBuildsAsync(new ADOBuildFilter()
+            {
+                Branch = Options.Branch,
+                Definition = Options.PipelineId,
+                Oldest = DateTime.Now - TimeSpan.FromDays(Options.AutoCloseIdleDays),
+                MaxResults = 100,
+            });
+            Console.WriteLine($"Found {builds.Count} builds.");// Getting all failure instances...");
+
+            if (Options.BuildReasons.Any())
+            {
+                bool IsAllowedReason(string reason)
+                    => Options.BuildReasons.Any(allowedReason => allowedReason.ToLower() == reason.ToLower());
+                builds = builds.Where(build => IsAllowedReason(build.Reason)).ToList();
+                Console.WriteLine($"{builds.Count} matched allowed reason filters: {string.Join(',', Options.BuildReasons)}");
+            }
+
+            return builds;
         }
 
         private async Task<List<FailureInfoCollection>> GetAnalyticsFailureCollectionsAsync()

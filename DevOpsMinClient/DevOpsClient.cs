@@ -128,6 +128,54 @@ namespace DevOpsMinClient
                 "$['dataProviders']['ms.vss-build-web.run-artifacts-download-data-provider']['downloadUrl']");
         }
 
+        // Uses HierarchyQuery to retrieve failure information associated with a provided build and queries to return
+        // a collection of full detailed result data. Requires full access (unscoped) personal access tokens, which
+        // generally aren't available to interactive users.
+        public async Task<List<ADODetailedTestResultInfo>> GetTestFailuresForBuildAsync(ADOBuild build)
+        {
+            var testHierarchyJson = await this.GetBuildTestHierarchyObjectAsync(build.Id);
+
+            // We want to find all "result groups" in this hierarchy document that have failures -- and a default
+            // query will only report result details for failures.
+            var resultGroupsWithFailures = testHierarchyJson.SelectTokens("$..resultsForGroup")
+                .Children();
+
+            var runAndTestIds = new List<(int RunId, int TestId)>();
+            foreach (var failureGroup in resultGroupsWithFailures)
+            {
+                var groupJson = failureGroup as JObject;
+                if (groupJson.TryGetValue("results", out JArray failureResults)
+                    && groupJson.TryGetValue("groupByValue", out JObject groupByValueJson)
+                    && groupByValueJson.TryGetValue("id", out int runId))
+                {
+                    foreach (var failureResult in failureResults.Children<JObject>())
+                    {
+                        if (failureResult.TryGetValue("id", out int testId))
+                        {
+                            runAndTestIds.Add((runId, testId));
+                        }
+                    }
+                }
+            }
+
+            var failures = await Task.WhenAll(runAndTestIds
+                .Select(async idPair => await this.GetDetailedTestResultInfoAsync(idPair.RunId, idPair.TestId)));
+
+            return failures.ToList();
+        }
+
+        public async Task<List<ADODetailedTestResultInfo>> GetTestFailuresForBuildsAsync(IEnumerable<ADOBuild> builds)
+        {
+            // SelectMany doesn't work right with async, so we'll get the individual lists and then flatten them in a separate
+            // step. The queries are done in full parallel (to do : more metered parallelism)
+            var listsOfFailures = await Task.WhenAll(builds.Select(async build => await this.GetTestFailuresForBuildAsync(build)));
+            return listsOfFailures.SelectMany(item => item).ToList();
+        }
+
+        // Gets a hierarchy document that includes test result data for the provided build identifier. Querying for
+        // hierarchy documents requires a full-access personal access token (not generally accessible to interactive
+        // users) and generally simulates the retrieval of backend data that happens when clicking through to the test
+        // results tab in a browser.
         public async Task<JObject> GetBuildTestHierarchyObjectAsync(int buildId)
         {
             var requestUrl = $"{this.GetUrlWithoutProject()}"

@@ -673,8 +673,12 @@ namespace DevOpsHelper.Commands
 
             public static bool UseNonAnalyticsStrategy
             {
-                get => Options.Command.Options.Any(
-                    option => option.Template == OptionDefinition.UpdateTestFailureBugs.UseNonAnalyticsStrategy.Template);
+                get
+                {
+                    var optionValue = OptionDefinition.UpdateTestFailureBugs.UseNonAnalyticsStrategy
+                        .ValueFrom(Options.Command, defaultValue: null);
+                    return optionValue != null;
+                }
             }
 
             private static Lazy<string> LazyBranch = new(() =>

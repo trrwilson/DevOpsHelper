@@ -31,20 +31,20 @@ namespace DevOpsHelper
             if (File.Exists(pathToUse))
             {
                 Console.WriteLine($"Loading default options from {pathToUse}");
-                using (var fileStream = File.OpenRead(pathToUse))
-                using (var fileReader = new StreamReader(fileStream))
+                using var fileStream = File.OpenRead(pathToUse);
+                using var fileReader = new StreamReader(fileStream);
+                while (!fileReader.EndOfStream)
                 {
-                    while (!fileReader.EndOfStream)
+                    var lineTokens = fileReader.ReadLine().Split(' ');
+                    if (lineTokens.Length == 0 
+                        || lineTokens[0].StartsWith('#')
+                        || lineTokens[0].StartsWith("//"))
                     {
-                        var line = fileReader.ReadLine();
-                        if (line.StartsWith('#') || line.StartsWith("//")) continue;
-                        var option = line[0..(Math.Max(0, line.IndexOf(' ')))].Trim();
-                        var value = line[Math.Max(0, line.IndexOf(' '))..].Trim();
-                        if (!string.IsNullOrEmpty(option))
-                        {
-                            OptionDefaults[option] = value;
-                        }
+                        continue;
                     }
+                    var option = lineTokens[0];
+                    var value = string.Join(' ', lineTokens.Skip(1));
+                    OptionDefaults[option] = value;
                 }
             }
         }
